@@ -1,0 +1,31 @@
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# node
+node_modules/
+dist/
+build/
+npm-debug.log*
+.npm/
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# editors / os
+.DS_Store
+.idea/
+*.swp
+
+# logs
+*.log
