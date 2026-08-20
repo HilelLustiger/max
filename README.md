@@ -10,13 +10,11 @@ Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, a
 max/
 ├── PLAN.md                    # architecture plan and roadmap
 ├── ADR/                       # architecture decision records (coming as services are built)
-├── services/
-│   ├── telegram-gateway/      # TypeScript — Telegram-facing interface
-│   └── agent-core/            # Python/FastAPI — the agent, LLM calls, persistence
+├── Agent/                     # Python/FastAPI — the agent, LLM calls, persistence
 └── .github/workflows/         # CI: delegates to each service's own scripts/ci.sh
 ```
 
-Each service owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions).
+Each service lives in its own top-level directory (e.g. `Agent/`) and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). The Telegram gateway and future services (frontend, Chrome extension) will each get their own top-level directory the same way.
 
 ## Status
 

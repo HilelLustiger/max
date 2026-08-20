@@ -6,20 +6,11 @@ on:
   pull_request:
 
 jobs:
-  telegram-gateway:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-      - run: services/telegram-gateway/scripts/ci.sh
-
-  agent-core:
+  agent:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: services/agent-core/scripts/ci.sh
+      - run: Agent/scripts/ci.sh
