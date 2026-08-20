@@ -2,7 +2,7 @@
 
 A personal assistant AI agent, reachable first via Telegram, deployed on Railway.
 
-Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, and MCP-server-powered skills, all sharing one agent core. See [PLAN.md](PLAN.md) for the full architecture, data model, and rationale (ADRs land in `ADR/` as the project grows).
+Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, and MCP-server-powered skills, all sharing one agent core. See [PLAN.md](PLAN.md) for the full architecture, data model, and rationale (ADRs land in `ADR/` as the project grows), and [docs/DOMAIN.md](docs/DOMAIN.md) for the project glossary.
 
 ## Structure
 
