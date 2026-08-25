@@ -4,15 +4,17 @@ from sqlalchemy.orm import Session
 from db.models import Conversation, Event, LLMMetrics, Message
 
 
-def get_or_create_conversation(session: Session, channel: str, external_id: str) -> Conversation:
+def get_conversation(session: Session, channel: str, external_id: str) -> Conversation | None:
     stmt = select(Conversation).where(
         Conversation.channel == channel, Conversation.external_id == external_id
     )
-    conversation = session.scalar(stmt)
-    if conversation is None:
-        conversation = Conversation(channel=channel, external_id=external_id)
-        session.add(conversation)
-        session.flush()
+    return session.scalar(stmt)
+
+
+def create_conversation(session: Session, channel: str, external_id: str) -> Conversation:
+    conversation = Conversation(channel=channel, external_id=external_id)
+    session.add(conversation)
+    session.flush()
     return conversation
 
 

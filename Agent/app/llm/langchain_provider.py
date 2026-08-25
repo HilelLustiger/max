@@ -1,3 +1,4 @@
+import logging
 import time
 
 from langchain_anthropic import ChatAnthropic
@@ -5,6 +6,8 @@ from langchain_core.messages import BaseMessage, SystemMessage
 
 from app.llm.contract import LLMResponse
 from app.metrics.usage_callback import UsageCallbackHandler
+
+logger = logging.getLogger(__name__)
 
 
 class LangChainProvider:
@@ -16,9 +19,19 @@ class LangChainProvider:
     def generate(self, messages: list[BaseMessage], system: str) -> LLMResponse:
         callback = UsageCallbackHandler()
         start = time.monotonic()
-        result = self._chat_model.invoke(
-            [SystemMessage(content=system), *messages], config={"callbacks": [callback]}
-        )
+        try:
+            result = self._chat_model.invoke(
+                [SystemMessage(content=system), *messages], config={"callbacks": [callback]}
+            )
+        except Exception:
+            elapsed_ms = int((time.monotonic() - start) * 1000)
+            logger.exception(
+                "provider=%s model=%s elapsed_ms=%d call_failed",
+                self._provider,
+                self._model,
+                elapsed_ms,
+            )
+            raise
         latency_ms = int((time.monotonic() - start) * 1000)
         return LLMResponse(
             text=result.content,

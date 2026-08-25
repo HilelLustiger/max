@@ -3,7 +3,8 @@ import uuid
 
 from db.conversation import (
     add_message,
-    get_or_create_conversation,
+    create_conversation,
+    get_conversation,
     recent_messages,
     record_event,
     record_llm_metrics,
@@ -42,7 +43,9 @@ def chat(request: ChatRequest) -> ChatResponse:
     logger.info("request_id=%s channel=%s message_received", request_id, request.channel)
 
     with get_session() as session:
-        conversation = get_or_create_conversation(session, request.channel, request.external_id)
+        conversation = get_conversation(session, request.channel, request.external_id)
+        if conversation is None:
+            conversation = create_conversation(session, request.channel, request.external_id)
         history = [
             AIMessage(content=m.content) if m.role == "assistant" else HumanMessage(content=m.content)
             for m in recent_messages(session, conversation.id)
