@@ -30,12 +30,12 @@ _Avoid_: turn, update (that's the channel's raw event, not this)
 An implementation of the model-agnostic interface the Agent calls to generate a reply (e.g. the Anthropic provider). New providers are added without changing conversation or persistence logic.
 _Avoid_: model, backend, vendor
 
-**LLM Call**:
+**LLM Metrics**:
 One recorded invocation of an LLM Provider for a single Message — captures provider, model, token counts, latency, and cost. This is the unit analytics/optimization work is built on.
-_Avoid_: request, completion, generation
+_Avoid_: LLM call, request, completion, generation
 
 ### Analytics
 
 **Event**:
-An append-only record of a notable lifecycle point (message received, reply sent, error) used for usage/funnel analysis over time, distinct from an LLM Call's per-model-invocation metrics.
+An append-only record of a notable lifecycle point (message received, reply sent, error) used for usage/funnel analysis over time, distinct from LLM Metrics' per-model-invocation data.
 _Avoid_: log, metric

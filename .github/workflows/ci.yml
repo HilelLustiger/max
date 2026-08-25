@@ -6,11 +6,32 @@ on:
   pull_request:
 
 jobs:
-  agent:
+  test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: max
+          POSTGRES_PASSWORD: max
+          POSTGRES_DB: max
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U max"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql+psycopg://max:max@localhost:5432/max
+      ANTHROPIC_API_KEY: dummy
+      LLM_PROVIDER: anthropic
+      LLM_MODEL: claude-sonnet-4-5
     steps:
       - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: DB/scripts/ci.sh
       - run: Agent/scripts/ci.sh
