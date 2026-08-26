@@ -1,5 +1,5 @@
 [tool.uv.workspace]
-members = ["DB", "Agent"]
+members = ["DB", "Agent", "Integration"]
 
 [tool.ruff]
 line-length = 100

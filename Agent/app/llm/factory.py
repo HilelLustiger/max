@@ -1,11 +1,13 @@
 from app.config import settings
 from app.llm.contract import LLMProvider
+from app.llm.fake_provider import FakeProvider
 from app.llm.langchain_provider import LangChainProvider
 
 _PROVIDERS = {
     "anthropic": lambda: LangChainProvider(
         provider="anthropic", model=settings.llm_model, api_key=settings.anthropic_api_key
     ),
+    "fake": lambda: FakeProvider(),
 }
 
 

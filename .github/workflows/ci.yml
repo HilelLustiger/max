@@ -39,3 +39,4 @@ jobs:
       - run: DB/scripts/ci.sh
       - run: Agent/scripts/ci.sh
       - run: Telegram/scripts/ci.sh
+      - run: Integration/scripts/test.sh

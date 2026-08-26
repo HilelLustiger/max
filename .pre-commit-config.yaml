@@ -1,0 +1,18 @@
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  - repo: local
+    hooks:
+      - id: fast-checks
+        name: lint + unit tests (Agent, DB, Telegram)
+        entry: scripts/test.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: integration-checks
+        name: integration tests (DB + Agent + cross-service, needs Docker)
+        entry: scripts/test-integration.sh
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
