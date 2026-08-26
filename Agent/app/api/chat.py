@@ -10,7 +10,7 @@ from db.conversation import (
     record_llm_metrics,
 )
 from db.session import get_session
-from fastapi import APIRouter
+from fastapi import APIRouter, Header
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
@@ -38,9 +38,12 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-def chat(request: ChatRequest) -> ChatResponse:
-    request_id = uuid.uuid4().hex
-    logger.info("request_id=%s channel=%s message_received", request_id, request.channel)
+def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) -> ChatResponse:
+    request_id = x_request_id or uuid.uuid4().hex
+    logger.info(
+        "message_received",
+        extra={"event": "message_received", "request_id": request_id, "channel": request.channel},
+    )
 
     with get_session() as session:
         conversation = get_conversation(session, request.channel, request.external_id)
@@ -55,12 +58,25 @@ def chat(request: ChatRequest) -> ChatResponse:
             session, "message_received", conversation_id=conversation.id, request_id=request_id
         )
 
+    logger.info(
+        "llm_call_start",
+        extra={
+            "event": "llm_call_start",
+            "request_id": request_id,
+            "conversation_id": conversation.id,
+        },
+    )
     try:
         result = _graph.invoke({"messages": [*history, HumanMessage(content=request.text)]})
         reply_message = result["messages"][-1]
     except Exception:
         logger.exception(
-            "request_id=%s conversation_id=%s llm_call_failed", request_id, conversation.id
+            "llm_call_failed",
+            extra={
+                "event": "llm_call_failed",
+                "request_id": request_id,
+                "conversation_id": conversation.id,
+            },
         )
         with get_session() as session:
             record_llm_metrics(
@@ -84,6 +100,20 @@ def chat(request: ChatRequest) -> ChatResponse:
     cache_read_input_tokens = meta.get("cache_read_input_tokens")
     provider_name = meta.get("provider", "unknown")
     model_name = meta.get("model", "unknown")
+
+    logger.info(
+        "llm_call_end",
+        extra={
+            "event": "llm_call_end",
+            "request_id": request_id,
+            "conversation_id": conversation.id,
+            "provider": provider_name,
+            "model": model_name,
+            "latency_ms": meta.get("latency_ms"),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+        },
+    )
 
     with get_session() as session:
         add_message(session, conversation.id, role="assistant", content=reply_message.content)
@@ -113,5 +143,8 @@ def chat(request: ChatRequest) -> ChatResponse:
             session, "message_sent", conversation_id=conversation.id, request_id=request_id
         )
 
-    logger.info("request_id=%s channel=%s message_sent", request_id, request.channel)
+    logger.info(
+        "message_sent",
+        extra={"event": "message_sent", "request_id": request_id, "channel": request.channel},
+    )
     return ChatResponse(reply=reply_message.content)

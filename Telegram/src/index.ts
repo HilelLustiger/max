@@ -1,7 +1,8 @@
 import { createBot } from "./bot.js";
+import { logger } from "./logger.js";
 
 const bot = createBot();
 
 bot.start({
-  onStart: () => console.log(JSON.stringify({ event: "bot_started" })),
+  onStart: () => logger.info("bot_started"),
 });

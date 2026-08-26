@@ -1,11 +1,10 @@
-import logging
-
 from fastapi import FastAPI
 
 from app.api.chat import router as chat_router
 from app.api.health import router as health_router
+from app.logging_config import configure_logging
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+configure_logging()
 
 app = FastAPI(title="max-agent")
 app.include_router(health_router)

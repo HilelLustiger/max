@@ -26,10 +26,13 @@ class LangChainProvider:
         except Exception:
             elapsed_ms = int((time.monotonic() - start) * 1000)
             logger.exception(
-                "provider=%s model=%s elapsed_ms=%d call_failed",
-                self._provider,
-                self._model,
-                elapsed_ms,
+                "provider_call_failed",
+                extra={
+                    "event": "provider_call_failed",
+                    "provider": self._provider,
+                    "model": self._model,
+                    "latency_ms": elapsed_ms,
+                },
             )
             raise
         latency_ms = int((time.monotonic() - start) * 1000)

@@ -25,7 +25,7 @@ def get_session() -> Iterator[Session]:
         yield session
         session.commit()
     except Exception:
-        logger.exception("DB transaction failed, rolling back")
+        logger.exception("db_transaction_failed", extra={"event": "db_transaction_failed"})
         session.rollback()
         raise
     finally:

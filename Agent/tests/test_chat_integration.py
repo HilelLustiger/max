@@ -26,6 +26,33 @@ def test_chat_round_trip_persists_conversation(clean_db):
         assert [tuple(m) for m in metrics] == [("fake", "fake-model")]
 
 
+def test_chat_uses_incoming_request_id_header(clean_db):
+    response = client.post(
+        "/chat",
+        json={"channel": "test", "external_id": "user-3", "text": "hello"},
+        headers={"X-Request-Id": "caller-supplied-id"},
+    )
+    assert response.status_code == 200
+
+    with get_session() as session:
+        metrics_request_id = session.execute(text("SELECT request_id FROM llm_metrics")).scalar_one()
+        event_request_ids = set(session.execute(text("SELECT request_id FROM events")).scalars())
+        assert metrics_request_id == "caller-supplied-id"
+        assert event_request_ids == {"caller-supplied-id"}
+
+
+def test_chat_generates_request_id_when_absent(clean_db):
+    response = client.post(
+        "/chat", json={"channel": "test", "external_id": "user-4", "text": "hello"}
+    )
+    assert response.status_code == 200
+
+    with get_session() as session:
+        request_id = session.execute(text("SELECT request_id FROM llm_metrics")).scalar_one()
+        assert request_id is not None
+        assert request_id != "caller-supplied-id"
+
+
 def test_chat_reuses_conversation_history(clean_db):
     client.post("/chat", json={"channel": "test", "external_id": "user-2", "text": "first"})
     client.post("/chat", json={"channel": "test", "external_id": "user-2", "text": "second"})
