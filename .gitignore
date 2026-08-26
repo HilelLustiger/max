@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# private planning / notes (local only, repo goes public on deploy)
+/NOTES.md
+/PLAN.md
+/MEMORY.md
+/ADR/
+
 # node
 node_modules/
 dist/

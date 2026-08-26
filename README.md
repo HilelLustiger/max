@@ -2,23 +2,27 @@
 
 A personal assistant AI agent, reachable first via Telegram, deployed on Railway.
 
-Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, and MCP-server-powered skills, all sharing one agent core. See [PLAN.md](PLAN.md) for the full architecture, data model, and rationale (ADRs land in `ADR/` as the project grows), and [docs/DOMAIN.md](docs/DOMAIN.md) for the project glossary.
+Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, and MCP-server-powered skills, all sharing one agent core. See [docs/DOMAIN.md](docs/DOMAIN.md) for the project glossary.
 
 ## Structure
 
 ```
 max/
-├── PLAN.md                    # architecture plan and roadmap
-├── ADR/                       # architecture decision records (coming as services are built)
 ├── Agent/                     # Python/FastAPI — the agent, LLM calls, persistence
+├── DB/                        # shared Python package — Postgres models, migrations
+├── Telegram/                  # TypeScript/grammY — Telegram gateway, calls Agent's /chat
 └── .github/workflows/         # CI: delegates to each service's own scripts/ci.sh
 ```
 
-Each service lives in its own top-level directory (e.g. `Agent/`) and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). The Telegram gateway and future services (frontend, Chrome extension) will each get their own top-level directory the same way.
+Each service lives in its own top-level directory (e.g. `Agent/`) and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). Future services (frontend, Chrome extension) will each get their own top-level directory the same way.
 
 ## Status
 
-Scaffolding stage — services are not yet implemented. Check `PLAN.md` for what's coming next.
+- `Agent`: implemented and working end-to-end locally — `/chat` persists conversation history to Postgres, calls Claude via a model-agnostic LLM layer, and records per-call metrics.
+- `DB`: shared Postgres models + Alembic migrations, used by `Agent`.
+- `Telegram`: scaffolded (grammY, long polling) — forwards messages to `Agent`'s `/chat`; not yet run against a live bot token.
+
+Not yet deployed to Railway.
 
 ## CI
 
