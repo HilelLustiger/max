@@ -11,7 +11,9 @@ max/
 ├── Agent/                     # Python/FastAPI — the agent, LLM calls, persistence
 ├── DB/                        # shared Python package — Postgres models, migrations
 ├── Telegram/                  # TypeScript/grammY — Telegram gateway, calls Agent's /chat
-└── .github/workflows/         # CI: delegates to each service's own scripts/ci.sh
+├── Integration/                # cross-service tests: boots a real Agent against real Postgres
+├── scripts/                    # root-level dev scripts (see Local development below)
+└── .github/workflows/          # CI: delegates to each service's own scripts/ci.sh
 ```
 
 Each service lives in its own top-level directory (e.g. `Agent/`) and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). Future services (frontend, Chrome extension) will each get their own top-level directory the same way.
@@ -24,6 +26,48 @@ Each service lives in its own top-level directory (e.g. `Agent/`) and owns its o
 
 Not yet deployed to Railway.
 
+## Local development
+
+Requires [`uv`](https://docs.astral.sh/uv/), Node 24+, and Docker (for Postgres).
+
+### Run the stack
+
+```
+scripts/run.sh
+```
+
+Brings up Postgres, applies migrations, and starts the Agent on `localhost:8000`. Also starts the Telegram gateway if `Telegram/.env` has a `TELEGRAM_BOT_TOKEN` set — otherwise it just runs the Agent so you can hit `/chat` directly:
+
+```
+curl -s localhost:8000/chat -H "Content-Type: application/json" \
+  -d '{"channel": "test", "external_id": "me", "text": "hello"}'
+```
+
+You can also run a single service on its own, e.g. `Agent/scripts/run.sh` or `Telegram/scripts/run.sh` (each `cd`s and sets up its own deps).
+
+### Run tests
+
+Tests are split into two tiers:
+
+- **Unit** — no Postgres, no Docker, fast. `scripts/test.sh` (or per-service: `Agent/scripts/test.sh`, `Telegram/scripts/test.sh`).
+- **Integration** — needs a real Postgres, spins one up itself. `scripts/test-integration.sh` (or per-service: `DB/scripts/test.sh`, `Agent/scripts/test-integration.sh`, `Integration/scripts/test.sh`). Integration tests never call the real Anthropic API — Agent tests run against a `FakeProvider` that returns canned replies.
+
+`scripts/dev-db.sh` is the shared helper both of the above (and `scripts/run.sh`) use to bring up Postgres and apply migrations — you shouldn't need to call it directly.
+
+### Git hooks
+
+```
+pre-commit install -c .github/pre-commit-config.yaml --install-hooks
+pre-commit install -c .github/pre-commit-config.yaml -t pre-push
+```
+
+Requires the [`pre-commit`](https://pre-commit.com/) tool (`pip install pre-commit` or `brew install pre-commit`). Once installed:
+
+- **On `git commit`**: runs `scripts/test.sh` (the fast unit tier) automatically.
+- **On `git push`**: runs `scripts/test-integration.sh` (the full tier) automatically.
+
+To run either manually without committing/pushing: `pre-commit run -c .github/pre-commit-config.yaml fast-checks --hook-stage pre-commit` (or `integration-checks --hook-stage pre-push`).
+
 ## CI
 
-`.github/workflows/ci.yml` runs one job per service. Each job does minimal environment setup (Node or Python) and then hands off entirely to that service's own `scripts/ci.sh`, which owns its install/lint/test/build steps. The root workflow never encodes service-specific commands directly — that keeps each service free to change its own tooling without touching CI config at the root.
+`.github/workflows/ci.yml` runs one job per service. Each job does minimal environment setup (Node or Python) and then hands off entirely to that service's own `scripts/ci.sh`, which owns its install/lint/test/build steps (unit + integration together, since CI already has a real Postgres available). The root workflow never encodes service-specific commands directly — that keeps each service free to change its own tooling without touching CI config at the root.
