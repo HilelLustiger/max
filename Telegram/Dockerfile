@@ -11,4 +11,4 @@ WORKDIR /workspace
 COPY package.json package-lock.json* ./
 RUN npm install --omit=dev
 COPY --from=build /workspace/dist dist
-CMD ["node", "dist/index.js"]
+CMD ["node", "--env-file-if-exists=.env", "dist/index.js"]

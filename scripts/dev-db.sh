@@ -4,14 +4,13 @@
 # local DATABASE_URL.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-
-export DATABASE_URL="${DATABASE_URL:-postgresql+psycopg://max:max@localhost:5432/max}"
+source scripts/env.sh
 
 docker compose up -d postgres
 
 echo "waiting for postgres..."
 for _ in $(seq 1 30); do
-  if docker compose exec -T postgres pg_isready -U max >/dev/null 2>&1; then
+  if docker compose exec -T postgres pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
     break
   fi
   sleep 1

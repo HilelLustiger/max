@@ -3,6 +3,7 @@
 # Telegram gateway if TELEGRAM_BOT_TOKEN is set.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/env.sh
 
 scripts/dev-db.sh
 
