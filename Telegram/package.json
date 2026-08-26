@@ -1,0 +1,22 @@
+{
+  "name": "telegram-gateway",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram-facing gateway that forwards messages to the Agent's /chat API",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "TELEGRAM_BOT_TOKEN=test node --test dist/**/*.test.js"
+  },
+  "dependencies": {
+    "grammy": "^1.45.1"
+  },
+  "devDependencies": {
+    "typescript": "^7.0.2",
+    "tsx": "^4.23.12",
+    "@types/node": "^24.9.0"
+  }
+}
