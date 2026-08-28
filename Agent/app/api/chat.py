@@ -17,12 +17,13 @@ from pydantic import BaseModel
 from app.graph.build import build_graph
 from app.llm.factory import get_provider
 from app.llm.pricing import estimate_cost_usd
+from app.tools import ALL_TOOLS
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _provider = get_provider()
-_graph = build_graph(_provider)
+_graph = build_graph(_provider, tools=ALL_TOOLS)
 
 FALLBACK_REPLY = "Sorry, I'm having trouble responding right now. Please try again in a moment."
 
