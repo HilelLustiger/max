@@ -17,5 +17,10 @@ def clean_db():
     """Integration tests share one Postgres instance; keep each test isolated. Opt in explicitly
     so unit tests never need a live database connection."""
     with get_session() as session:
-        session.execute(text("TRUNCATE events, llm_metrics, messages, conversations CASCADE"))
+        session.execute(
+            text(
+                "TRUNCATE events, llm_metrics, messages, conversations, "
+                "habit_logs, habits, tasks, goals CASCADE"
+            )
+        )
     yield

@@ -1,4 +1,5 @@
 from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages.tool import ToolCall
 from langchain_core.tools import BaseTool
 
 from app.llm.contract import LLMResponse
@@ -7,10 +8,15 @@ from app.llm.contract import LLMResponse
 class FakeProvider:
     """Canned-response provider for tests and local dev without an API key.
 
-    Simulates a tool-call round trip: given tools and no prior tool result, it
-    requests the first tool; once a ToolMessage is the latest message, it replies
-    using that result instead of requesting the tool again.
+    Replies with a plain "fake reply to: ..." text by default, even when tools are
+    passed in - real conversations shouldn't have tool calls forced onto them just
+    because a tool is available. Pass `tool_calls` to script a tool-call round trip:
+    each call is popped and returned in order; once a ToolMessage is the latest
+    message, it replies using that result instead of requesting another tool call.
     """
+
+    def __init__(self, tool_calls: list[ToolCall] | None = None):
+        self._tool_call_queue = list(tool_calls) if tool_calls else []
 
     def generate(
         self, messages: list[BaseMessage], system: str, tools: list[BaseTool] | None = None
@@ -30,8 +36,8 @@ class FakeProvider:
                 latency_ms=0,
             )
 
-        if tools:
-            tool = tools[0]
+        if tools and self._tool_call_queue:
+            tool_call = self._tool_call_queue.pop(0)
             return LLMResponse(
                 text="",
                 provider="fake",
@@ -42,7 +48,7 @@ class FakeProvider:
                 cache_read_input_tokens=None,
                 finish_reason="tool_calls",
                 latency_ms=0,
-                tool_calls=[{"name": tool.name, "args": {}, "id": "fake-call-1"}],
+                tool_calls=[tool_call],
             )
 
         last_user_text = last_message.content if last_message else ""

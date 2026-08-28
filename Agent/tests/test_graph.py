@@ -19,7 +19,8 @@ def get_time() -> str:
 
 
 def test_graph_runs_full_tool_call_round_trip():
-    graph = build_graph(FakeProvider(), tools=[get_time])
+    provider = FakeProvider(tool_calls=[{"name": "get_time", "args": {}, "id": "fake-call-1"}])
+    graph = build_graph(provider, tools=[get_time])
     result = graph.invoke({"messages": [HumanMessage(content="what time is it?")]})
 
     message_types = [type(m).__name__ for m in result["messages"]]
