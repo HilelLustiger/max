@@ -1,8 +1,9 @@
 import logging
 import time
 
-from langchain_anthropic import ChatAnthropic
+from langchain_anthropic import ChatAnthropic, convert_to_anthropic_tool
 from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.tools import BaseTool
 
 from app.llm.contract import LLMResponse
 from app.metrics.usage_callback import UsageCallbackHandler
@@ -16,11 +17,21 @@ class LangChainProvider:
         self._model = model
         self._chat_model = ChatAnthropic(model=model, api_key=api_key)
 
-    def generate(self, messages: list[BaseMessage], system: str) -> LLMResponse:
+    def generate(
+        self, messages: list[BaseMessage], system: str, tools: list[BaseTool] | None = None
+    ) -> LLMResponse:
+        chat_model = self._chat_model
+        if tools:
+            # Tool schemas are static across calls, so mark them cacheable: cache_control
+            # on the last tool schema caches everything up to and including it.
+            anthropic_tools = [convert_to_anthropic_tool(tool) for tool in tools]
+            anthropic_tools[-1] = {**anthropic_tools[-1], "cache_control": {"type": "ephemeral"}}
+            chat_model = chat_model.bind_tools(anthropic_tools)
+
         callback = UsageCallbackHandler()
         start = time.monotonic()
         try:
-            result = self._chat_model.invoke(
+            result = chat_model.invoke(
                 [SystemMessage(content=system), *messages], config={"callbacks": [callback]}
             )
         except Exception:
@@ -46,4 +57,5 @@ class LangChainProvider:
             cache_read_input_tokens=callback.cache_read_input_tokens,
             finish_reason=callback.finish_reason,
             latency_ms=latency_ms,
+            tool_calls=result.tool_calls,
         )
