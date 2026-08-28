@@ -1,0 +1,75 @@
+import datetime
+
+from db.models import TaskStatus
+from db.session import get_session
+from db.tasks import complete_task as db_complete_task
+from db.tasks import create_task as db_create_task
+from db.tasks import list_tasks as db_list_tasks
+from langchain_core.tools import tool
+
+
+def _parse_due_date(due_date: str | None) -> datetime.datetime | None:
+    if due_date is None:
+        return None
+    return datetime.datetime.fromisoformat(due_date)
+
+
+@tool
+def create_task(title: str, category: str | None = None, due_date: str | None = None) -> str:
+    """Create a new task.
+
+    category is a free-text grouping label (e.g. "work", "health"), independent of any goal.
+    due_date, if given, must be an ISO 8601 date or datetime string (e.g. "2026-09-01").
+    """
+    try:
+        parsed_due_date = _parse_due_date(due_date)
+    except ValueError:
+        return f"Invalid due_date '{due_date}'. Use an ISO 8601 date, e.g. '2026-09-01'."
+
+    with get_session() as session:
+        task = db_create_task(session, title=title, category=category, due_date=parsed_due_date)
+        return f"Created task '{task.title}' (id={task.id}, status={task.status.value})."
+
+
+@tool
+def list_tasks(status: str | None = None, category: str | None = None) -> str:
+    """List tasks, optionally filtered by status and/or category.
+
+    status must be one of: not_started, in_progress, done. Omit to list all statuses.
+    """
+    parsed_status = None
+    if status is not None:
+        try:
+            parsed_status = TaskStatus(status)
+        except ValueError:
+            valid = ", ".join(s.value for s in TaskStatus)
+            return f"Invalid status '{status}'. Must be one of: {valid}."
+
+    with get_session() as session:
+        tasks = db_list_tasks(session, status=parsed_status, category=category)
+
+    if not tasks:
+        return "No tasks found."
+
+    lines = []
+    for task in tasks:
+        details = [f"status={task.status.value}"]
+        if task.category:
+            details.append(f"category={task.category}")
+        if task.due_date:
+            details.append(f"due={task.due_date.date().isoformat()}")
+        lines.append(f"- {task.title} (id={task.id}, {', '.join(details)})")
+    return "\n".join(lines)
+
+
+@tool
+def complete_task(task_id: str) -> str:
+    """Mark a task as done, given its id."""
+    with get_session() as session:
+        task = db_complete_task(session, task_id)
+    if task is None:
+        return f"No task found with id '{task_id}'."
+    return f"Completed task '{task.title}'."
+
+
+TASK_TOOLS = [create_task, list_tasks, complete_task]
