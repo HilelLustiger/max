@@ -10,5 +10,10 @@ from sqlalchemy import text
 @pytest.fixture
 def clean_db():
     with get_session() as session:
-        session.execute(text("TRUNCATE events, llm_metrics, messages, conversations CASCADE"))
+        session.execute(
+            text(
+                "TRUNCATE events, llm_metrics, messages, conversations, "
+                "habit_logs, habits, tasks, goals CASCADE"
+            )
+        )
     yield
