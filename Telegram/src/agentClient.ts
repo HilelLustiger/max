@@ -1,10 +1,21 @@
 import { config } from "./config.js";
 
-interface ChatResponse {
-  reply: string;
+export interface ClarificationResponse {
+  field: string;
+  question: string;
+  options: string[];
 }
 
-export async function askAgent(externalId: string, text: string, requestId: string): Promise<string> {
+export interface ChatResponse {
+  reply: string;
+  clarification?: ClarificationResponse;
+}
+
+export async function askAgent(
+  externalId: string,
+  text: string,
+  requestId: string,
+): Promise<ChatResponse> {
   const response = await fetch(`${config.agentUrl}/chat`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Request-Id": requestId },
@@ -15,6 +26,5 @@ export async function askAgent(externalId: string, text: string, requestId: stri
     throw new Error(`agent-core responded with ${response.status}`);
   }
 
-  const data = (await response.json()) as ChatResponse;
-  return data.reply;
+  return (await response.json()) as ChatResponse;
 }

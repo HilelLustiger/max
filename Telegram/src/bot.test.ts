@@ -51,20 +51,44 @@ function photoUpdate(): Update {
   } as unknown as Update;
 }
 
+function callbackQueryUpdate(data: string): Update {
+  return {
+    update_id: nextUpdateId++,
+    callback_query: {
+      id: `cb-${nextUpdateId}`,
+      from: { id: 42, is_bot: false, first_name: "Ada" },
+      chat_instance: "instance-1",
+      data,
+      message: {
+        message_id: nextMessageId++,
+        date: Math.floor(Date.now() / 1000),
+        chat: { id: 42, type: "private", first_name: "Ada" },
+        text: "When is it due?",
+      },
+    },
+  } as unknown as Update;
+}
+
 /** Sets up a bot whose Telegram API calls are intercepted instead of hitting the network, per grammY's transformer-based testing pattern. */
 async function createTestBot() {
   const bot = createBot("test-token", { botInfo: BOT_INFO });
   const sentMessages: string[] = [];
+  const sentKeyboards: unknown[] = [];
+  const answeredCallbacks: string[] = [];
 
   bot.api.config.use((_prev, method, payload) => {
     if (method === "sendMessage" && "text" in payload) {
       sentMessages.push(payload.text as string);
+      sentKeyboards.push((payload as { reply_markup?: unknown }).reply_markup);
+    }
+    if (method === "answerCallbackQuery") {
+      answeredCallbacks.push((payload as { callback_query_id: string }).callback_query_id);
     }
     return Promise.resolve({ ok: true, result: true } as never);
   });
 
   await bot.init();
-  return { bot, sentMessages };
+  return { bot, sentMessages, sentKeyboards, answeredCallbacks };
 }
 
 test("message:text success path replies with the agent's response", async () => {
@@ -118,4 +142,48 @@ test("non-text updates get a friendly reply instead of being ignored", async () 
   const { bot, sentMessages } = await createTestBot();
   await bot.handleUpdate(photoUpdate());
   assert.deepEqual(sentMessages, ["I can only handle text messages right now."]);
+});
+
+test("message:text clarification path replies with an inline keyboard instead of plain text", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        reply: "When is it due?",
+        clarification: { field: "due_date", question: "When is it due?", options: ["Today", "Tomorrow"] },
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+
+  try {
+    const { bot, sentMessages, sentKeyboards } = await createTestBot();
+    await bot.handleUpdate(textUpdate("add a task"));
+    assert.deepEqual(sentMessages, ["When is it due?"]);
+    const keyboard = sentKeyboards[0] as { inline_keyboard: { text: string; callback_data: string }[][] };
+    assert.deepEqual(
+      keyboard.inline_keyboard.map((row) => row.map((button) => button.text)),
+      [["Today"], ["Tomorrow"]],
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("callback_query press sends the selected option back to the agent and answers the callback", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: unknown;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    capturedBody = JSON.parse(init.body as string);
+    return new Response(JSON.stringify({ reply: "✅ Task created" }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const { bot, sentMessages, answeredCallbacks } = await createTestBot();
+    await bot.handleUpdate(callbackQueryUpdate("Today"));
+    assert.deepEqual(capturedBody, { channel: "telegram", external_id: "42", text: "Today" });
+    assert.deepEqual(sentMessages, ["✅ Task created"]);
+    assert.equal(answeredCallbacks.length, 1);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });

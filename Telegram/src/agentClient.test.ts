@@ -16,11 +16,35 @@ test("askAgent posts channel/external_id/text and the request ID header, and ret
   }) as typeof fetch;
 
   try {
-    const reply = await askAgent("chat-1", "hello", "req-1");
-    assert.equal(reply, "hi there");
+    const response = await askAgent("chat-1", "hello", "req-1");
+    assert.equal(response.reply, "hi there");
+    assert.equal(response.clarification, undefined);
     assert.match(capturedUrl!, /\/chat$/);
     assert.deepEqual(capturedBody, { channel: "telegram", external_id: "chat-1", text: "hello" });
     assert.equal(capturedRequestIdHeader, "req-1");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("askAgent returns clarification data when the agent includes it", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        reply: "When is it due?",
+        clarification: { field: "due_date", question: "When is it due?", options: ["Today", "Tomorrow"] },
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+
+  try {
+    const response = await askAgent("chat-1", "add a task", "req-1");
+    assert.deepEqual(response.clarification, {
+      field: "due_date",
+      question: "When is it due?",
+      options: ["Today", "Tomorrow"],
+    });
   } finally {
     globalThis.fetch = originalFetch;
   }
