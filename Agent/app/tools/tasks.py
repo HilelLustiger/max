@@ -20,6 +20,16 @@ def create_task(title: str, category: str | None = None, due_date: str | None = 
 
     category is a free-text grouping label (e.g. "work", "health"), independent of any goal.
     due_date, if given, must be an ISO 8601 date or datetime string (e.g. "2026-09-01").
+
+    If the user didn't specify a due_date, don't ask a free-text question for it - call
+    request_clarification (field="due_date") with a few relative-date options instead
+    (e.g. "Today", "Tomorrow", "Next week", "No due date"), then resolve the picked option
+    to an ISO 8601 date yourself before calling this tool again.
+
+    If the user didn't specify a category, don't ask a free-text question for it either -
+    call list_tasks first to see categories already in use, then call request_clarification
+    (field="category") offering those as options (plus "No category"). If no categories exist
+    yet, skip clarification and leave category unset.
     """
     try:
         parsed_due_date = _parse_due_date(due_date)

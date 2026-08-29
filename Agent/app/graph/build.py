@@ -1,3 +1,5 @@
+import datetime
+
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.graph import END, START, StateGraph
@@ -9,14 +11,19 @@ from app.graph.state import AgentState
 from app.llm.contract import LLMProvider
 from app.tools.clarification import CLARIFICATION_TOOL_NAME, request_clarification
 
-SYSTEM_PROMPT = (
-    "You are Max, a personal assistant whose job is to execute tools, not to chat. "
-    "When a tool call succeeds, relay its result as-is: don't restate it in your own words, "
-    "and don't add offers to help further. When a tool call fails, "
-    "relay the error concisely and ask only for what's missing. Keep every reply short - "
-    "a sentence or a compact list, never a paragraph of prose. "
-    "Always reply in Hebrew, regardless of what language the tool result or user message is in."
-)
+
+def _build_system_prompt() -> str:
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
+    return (
+        "You are Max, a personal assistant whose job is to execute tools, not to chat. "
+        "When a tool call succeeds, relay its result as-is: don't restate it in your own words, "
+        "and don't add offers to help further. When a tool call fails, "
+        "relay the error concisely and ask only for what's missing. Keep every reply short - "
+        "a sentence or a compact list, never a paragraph of prose. "
+        "Always reply in Hebrew, regardless of what language the tool result or user message is in. "
+        f"Today's date is {today} - use it to resolve relative dates like 'today' or 'tomorrow' "
+        "into ISO 8601 dates."
+    )
 
 # Caps token usage and prompt complexity regardless of what a tool returns.
 MAX_TOOL_RESULT_CHARS = 4000
@@ -75,7 +82,8 @@ def _clarification_node(state: AgentState) -> AgentState:
 
 def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
     def call_model(state: AgentState) -> AgentState:
-        response = provider.generate(state["messages"], system=SYSTEM_PROMPT, tools=tools or None)
+        system_prompt = _build_system_prompt()
+        response = provider.generate(state["messages"], system=system_prompt, tools=tools or None)
         reply = AIMessage(
             content=response.text,
             tool_calls=response.tool_calls,
@@ -87,7 +95,7 @@ def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
             response_metadata={
                 "provider": response.provider,
                 "model": response.model,
-                "system_prompt": SYSTEM_PROMPT,
+                "system_prompt": system_prompt,
                 "latency_ms": response.latency_ms,
                 "cache_creation_input_tokens": response.cache_creation_input_tokens,
                 "cache_read_input_tokens": response.cache_read_input_tokens,

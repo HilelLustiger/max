@@ -1,3 +1,5 @@
+import datetime
+
 from app.graph.build import MAX_TOOL_RESULT_CHARS, _process_tool_result, build_graph
 from app.llm.fake_provider import FakeProvider
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -10,6 +12,14 @@ def test_graph_invokes_provider_and_returns_reply():
     reply = result["messages"][-1]
     assert reply.content == "fake reply to: hello"
     assert reply.response_metadata["provider"] == "fake"
+
+
+def test_graph_includes_todays_date_in_system_prompt():
+    graph = build_graph(FakeProvider())
+    result = graph.invoke({"messages": [HumanMessage(content="hello")]})
+    reply = result["messages"][-1]
+    today = datetime.datetime.now(datetime.UTC).date().isoformat()
+    assert today in reply.response_metadata["system_prompt"]
 
 
 @tool
