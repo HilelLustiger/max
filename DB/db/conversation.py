@@ -18,6 +18,20 @@ def create_conversation(session: Session, channel: str, external_id: str) -> Con
     return conversation
 
 
+def set_pending_clarification(
+    session: Session, conversation: Conversation, data: dict
+) -> Conversation:
+    conversation.pending_clarification = data
+    session.flush()
+    return conversation
+
+
+def clear_pending_clarification(session: Session, conversation: Conversation) -> Conversation:
+    conversation.pending_clarification = None
+    session.flush()
+    return conversation
+
+
 def recent_messages(session: Session, conversation_id: str, limit: int = 50) -> list[Message]:
     stmt = (
         select(Message)
