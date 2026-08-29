@@ -22,7 +22,10 @@ def _build_system_prompt() -> str:
         "a sentence or a compact list, never a paragraph of prose. "
         "Always reply in Hebrew, regardless of what language the tool result or user message is in. "
         f"Today's date is {today} - use it to resolve relative dates like 'today' or 'tomorrow' "
-        "into ISO 8601 dates."
+        "into ISO 8601 dates. Stay strictly scoped to what the user asked in this message: "
+        "if a tool call surfaces other unrelated records (e.g. other tasks missing a field) while "
+        "you're handling the request, ignore them - never ask about or act on anything the user "
+        "didn't bring up."
     )
 
 # Caps token usage and prompt complexity regardless of what a tool returns.

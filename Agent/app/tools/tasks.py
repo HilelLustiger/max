@@ -29,7 +29,8 @@ def create_task(title: str, category: str | None = None, due_date: str | None = 
     If the user didn't specify a category, don't ask a free-text question for it either -
     call list_tasks first to see categories already in use, then call request_clarification
     (field="category") offering those as options (plus "No category"). If no categories exist
-    yet, skip clarification and leave category unset.
+    yet, skip clarification and leave category unset. Use list_tasks here only to collect
+    category names - ignore everything else about the tasks it returns.
     """
     try:
         parsed_due_date = _parse_due_date(due_date)
