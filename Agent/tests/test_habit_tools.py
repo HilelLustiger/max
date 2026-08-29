@@ -37,7 +37,7 @@ def test_list_habits_tool_returns_active_habits(clean_db):
 
 def test_list_habits_tool_reports_no_habits(clean_db):
     reply = _tool_reply("list_habits", {})
-    assert "no habits" in reply.lower()
+    assert "לא נמצאו הרגלים" in reply
 
 
 def test_log_habit_tool_records_completion(clean_db):
@@ -55,4 +55,4 @@ def test_log_habit_tool_records_completion(clean_db):
 
 def test_log_habit_tool_missing_id_returns_friendly_message(clean_db):
     reply = _tool_reply("log_habit", {"habit_id": "missing"})
-    assert "No habit found" in reply
+    assert "לא נמצא הרגל" in reply

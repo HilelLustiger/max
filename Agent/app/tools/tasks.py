@@ -24,11 +24,16 @@ def create_task(title: str, category: str | None = None, due_date: str | None = 
     try:
         parsed_due_date = _parse_due_date(due_date)
     except ValueError:
-        return f"Invalid due_date '{due_date}'. Use an ISO 8601 date, e.g. '2026-09-01'."
+        return f"תאריך יעד לא תקין '{due_date}'. יש להשתמש בפורמט ISO 8601, לדוגמה '2026-09-01'."
 
     with get_session() as session:
         task = db_create_task(session, title=title, category=category, due_date=parsed_due_date)
-        return f"Created task '{task.title}' (id={task.id}, status={task.status.value})."
+        details = [f"מזהה: {task.id}"]
+        if task.category:
+            details.append(f"קטגוריה: {task.category}")
+        if task.due_date:
+            details.append(f"יעד: {task.due_date.date().isoformat()}")
+        return f"✅ המשימה '{task.title}' נוצרה ({', '.join(details)})"
 
 
 @tool
@@ -43,22 +48,22 @@ def list_tasks(status: str | None = None, category: str | None = None) -> str:
             parsed_status = TaskStatus(status)
         except ValueError:
             valid = ", ".join(s.value for s in TaskStatus)
-            return f"Invalid status '{status}'. Must be one of: {valid}."
+            return f"סטטוס לא תקין '{status}'. יש לבחור אחד מבין: {valid}."
 
     with get_session() as session:
         tasks = db_list_tasks(session, status=parsed_status, category=category)
 
     if not tasks:
-        return "No tasks found."
+        return "לא נמצאו משימות."
 
     lines = []
     for task in tasks:
-        details = [f"status={task.status.value}"]
+        details = [f"סטטוס: {task.status.value}"]
         if task.category:
-            details.append(f"category={task.category}")
+            details.append(f"קטגוריה: {task.category}")
         if task.due_date:
-            details.append(f"due={task.due_date.date().isoformat()}")
-        lines.append(f"- {task.title} (id={task.id}, {', '.join(details)})")
+            details.append(f"יעד: {task.due_date.date().isoformat()}")
+        lines.append(f"- {task.title} (מזהה: {task.id}, {', '.join(details)})")
     return "\n".join(lines)
 
 
@@ -68,8 +73,8 @@ def complete_task(task_id: str) -> str:
     with get_session() as session:
         task = db_complete_task(session, task_id)
     if task is None:
-        return f"No task found with id '{task_id}'."
-    return f"Completed task '{task.title}'."
+        return f"לא נמצאה משימה עם מזהה '{task_id}'."
+    return f"✅ המשימה '{task.title}' הושלמה"
 
 
 TASK_TOOLS = [create_task, list_tasks, complete_task]

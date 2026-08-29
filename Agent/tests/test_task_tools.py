@@ -50,7 +50,7 @@ def test_list_tasks_tool_returns_created_tasks(clean_db):
 
 def test_list_tasks_tool_reports_no_tasks(clean_db):
     reply = _tool_reply("list_tasks", {})
-    assert "no tasks" in reply.lower()
+    assert "לא נמצאו משימות" in reply
 
 
 def test_list_tasks_tool_output_is_capped_for_many_tasks(clean_db):
@@ -68,7 +68,7 @@ def test_complete_task_tool_marks_done(clean_db):
         task = db_create_task(session, "Buy milk")
 
     reply = _tool_reply("complete_task", {"task_id": task.id})
-    assert "Completed" in reply
+    assert "הושלמה" in reply
 
     with get_session() as session:
         assert get_task(session, task.id).status == TaskStatus.DONE
@@ -76,4 +76,4 @@ def test_complete_task_tool_marks_done(clean_db):
 
 def test_complete_task_tool_missing_id_returns_friendly_message(clean_db):
     reply = _tool_reply("complete_task", {"task_id": "missing"})
-    assert "No task found" in reply
+    assert "לא נמצאה משימה" in reply

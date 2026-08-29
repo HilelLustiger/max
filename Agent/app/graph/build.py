@@ -8,7 +8,14 @@ from langgraph.types import Command
 from app.graph.state import AgentState
 from app.llm.contract import LLMProvider
 
-SYSTEM_PROMPT = "You are a helpful personal assistant."
+SYSTEM_PROMPT = (
+    "You are Max, a personal assistant whose job is to execute tools, not to chat. "
+    "When a tool call succeeds, relay its result as-is: don't restate it in your own words, "
+    "and don't add offers to help further. When a tool call fails, "
+    "relay the error concisely and ask only for what's missing. Keep every reply short - "
+    "a sentence or a compact list, never a paragraph of prose. "
+    "Always reply in Hebrew, regardless of what language the tool result or user message is in."
+)
 
 # Caps token usage and prompt complexity regardless of what a tool returns.
 MAX_TOOL_RESULT_CHARS = 4000
