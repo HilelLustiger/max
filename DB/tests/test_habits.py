@@ -57,12 +57,28 @@ def test_list_habits_filters_by_goal_and_excludes_archived_by_default(clean_db):
         assert {h.id for h in all_habits} == {linked.id, unlinked.id}
 
 
+def test_create_habit_with_category(clean_db):
+    with get_session() as session:
+        habit = create_habit(session, "Meditate", category="health")
+        assert habit.category == "health"
+
+
+def test_list_habits_filters_by_category(clean_db):
+    with get_session() as session:
+        health = create_habit(session, "Meditate", category="health")
+        create_habit(session, "Read", category="learning")
+
+        health_habits = list_habits(session, category="health")
+        assert [h.id for h in health_habits] == [health.id]
+
+
 def test_update_habit_changes_fields(clean_db):
     with get_session() as session:
         habit = create_habit(session, "Old title")
-        updated = update_habit(session, habit.id, title="New title", frequency="weekly")
+        updated = update_habit(session, habit.id, title="New title", frequency="weekly", category="health")
         assert updated.title == "New title"
         assert updated.frequency == "weekly"
+        assert updated.category == "health"
 
 
 def test_archive_habit_sets_status_and_timestamp(clean_db):

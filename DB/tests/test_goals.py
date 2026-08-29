@@ -29,11 +29,27 @@ def test_list_goals_filters_by_status(clean_db):
         assert [g.id for g in active_goals] == [active.id]
 
 
+def test_create_goal_with_category(clean_db):
+    with get_session() as session:
+        goal = create_goal(session, "Get fit", category="health")
+        assert goal.category == "health"
+
+
+def test_list_goals_filters_by_category(clean_db):
+    with get_session() as session:
+        work = create_goal(session, "Ship project", category="work")
+        create_goal(session, "Get fit", category="health")
+
+        work_goals = list_goals(session, category="work")
+        assert [g.id for g in work_goals] == [work.id]
+
+
 def test_update_goal_changes_fields(clean_db):
     with get_session() as session:
         goal = create_goal(session, "Old title")
-        updated = update_goal(session, goal.id, title="New title")
+        updated = update_goal(session, goal.id, title="New title", category="health")
         assert updated.title == "New title"
+        assert updated.category == "health"
 
 
 def test_complete_goal_sets_status_and_timestamp(clean_db):

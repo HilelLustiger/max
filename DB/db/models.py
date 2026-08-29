@@ -82,6 +82,7 @@ class Goal(Base):
     id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
     title: Mapped[str] = mapped_column()
     description: Mapped[str | None] = mapped_column(default=None)
+    category: Mapped[str | None] = mapped_column(default=None)
     status: Mapped[GoalStatus] = mapped_column(
         Enum(GoalStatus, native_enum=False), default=GoalStatus.ACTIVE
     )
@@ -118,6 +119,7 @@ class Habit(Base):
     goal_id: Mapped[str | None] = mapped_column(ForeignKey("goals.id"), default=None)
     title: Mapped[str] = mapped_column()
     description: Mapped[str | None] = mapped_column(default=None)
+    category: Mapped[str | None] = mapped_column(default=None)
     frequency: Mapped[str] = mapped_column(default="daily")
     status: Mapped[HabitStatus] = mapped_column(
         Enum(HabitStatus, native_enum=False), default=HabitStatus.ACTIVE

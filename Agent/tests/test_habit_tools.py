@@ -27,12 +27,31 @@ def test_create_habit_tool_persists_habit(clean_db):
         assert [h.title for h in habits] == ["Meditate"]
 
 
+def test_create_habit_tool_persists_category(clean_db):
+    reply = _tool_reply("create_habit", {"title": "Meditate", "category": "health"})
+    assert "health" in reply
+
+    with get_session() as session:
+        habits = db_list_habits(session)
+        assert habits[0].category == "health"
+
+
 def test_list_habits_tool_returns_active_habits(clean_db):
     with get_session() as session:
         db_create_habit(session, "Meditate")
 
     reply = _tool_reply("list_habits", {})
     assert "Meditate" in reply
+
+
+def test_list_habits_tool_filters_by_category(clean_db):
+    with get_session() as session:
+        db_create_habit(session, "Meditate", category="health")
+        db_create_habit(session, "Read", category="learning")
+
+    reply = _tool_reply("list_habits", {"category": "health"})
+    assert "Meditate" in reply
+    assert "Read" not in reply
 
 
 def test_list_habits_tool_reports_no_habits(clean_db):

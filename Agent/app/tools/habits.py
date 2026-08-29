@@ -8,16 +8,25 @@ from langchain_core.tools import tool
 
 
 @tool
-def create_habit(title: str, frequency: str = "daily") -> str:
-    """Create a new recurring habit to track (e.g. frequency: "daily", "weekly")."""
+def create_habit(title: str, category: str | None = None, frequency: str = "daily") -> str:
+    """Create a new recurring habit to track (e.g. frequency: "daily", "weekly").
+
+    category is a free-text grouping label (e.g. "work", "health"), independent of any goal.
+    """
     with get_session() as session:
-        habit = db_create_habit(session, title=title, frequency=frequency)
-        return f"✅ ההרגל '{habit.title}' נוצר (מזהה: {habit.id}, תדירות: {habit.frequency})"
+        habit = db_create_habit(session, title=title, category=category, frequency=frequency)
+        details = [f"מזהה: {habit.id}", f"תדירות: {habit.frequency}"]
+        if habit.category:
+            details.append(f"קטגוריה: {habit.category}")
+        return f"✅ ההרגל '{habit.title}' נוצר ({', '.join(details)})"
 
 
 @tool
-def list_habits(status: str | None = None) -> str:
-    """List habits. status must be 'active' or 'archived'; defaults to 'active'."""
+def list_habits(status: str | None = None, category: str | None = None) -> str:
+    """List habits, optionally filtered by status and/or category.
+
+    status must be 'active' or 'archived'; defaults to 'active'.
+    """
     parsed_status = HabitStatus.ACTIVE
     if status is not None:
         try:
@@ -27,14 +36,18 @@ def list_habits(status: str | None = None) -> str:
             return f"סטטוס לא תקין '{status}'. יש לבחור אחד מבין: {valid}."
 
     with get_session() as session:
-        habits = db_list_habits(session, status=parsed_status)
+        habits = db_list_habits(session, status=parsed_status, category=category)
 
     if not habits:
         return "לא נמצאו הרגלים."
 
-    return "\n".join(
-        f"- {habit.title} (מזהה: {habit.id}, תדירות: {habit.frequency})" for habit in habits
-    )
+    lines = []
+    for habit in habits:
+        details = [f"מזהה: {habit.id}", f"תדירות: {habit.frequency}"]
+        if habit.category:
+            details.append(f"קטגוריה: {habit.category}")
+        lines.append(f"- {habit.title} ({', '.join(details)})")
+    return "\n".join(lines)
 
 
 @tool

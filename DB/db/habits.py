@@ -11,9 +11,12 @@ def create_habit(
     title: str,
     goal_id: str | None = None,
     description: str | None = None,
+    category: str | None = None,
     frequency: str = "daily",
 ) -> Habit:
-    habit = Habit(title=title, goal_id=goal_id, description=description, frequency=frequency)
+    habit = Habit(
+        title=title, goal_id=goal_id, description=description, category=category, frequency=frequency
+    )
     session.add(habit)
     session.flush()
     return habit
@@ -24,13 +27,18 @@ def get_habit(session: Session, habit_id: str) -> Habit | None:
 
 
 def list_habits(
-    session: Session, goal_id: str | None = None, status: HabitStatus | None = HabitStatus.ACTIVE
+    session: Session,
+    goal_id: str | None = None,
+    status: HabitStatus | None = HabitStatus.ACTIVE,
+    category: str | None = None,
 ) -> list[Habit]:
     stmt = select(Habit).order_by(Habit.created_at.asc())
     if goal_id is not None:
         stmt = stmt.where(Habit.goal_id == goal_id)
     if status is not None:
         stmt = stmt.where(Habit.status == status)
+    if category is not None:
+        stmt = stmt.where(Habit.category == category)
     return list(session.scalars(stmt))
 
 
@@ -39,6 +47,7 @@ def update_habit(
     habit_id: str,
     title: str | None = None,
     description: str | None = None,
+    category: str | None = None,
     frequency: str | None = None,
 ) -> Habit | None:
     habit = session.get(Habit, habit_id)
@@ -48,6 +57,8 @@ def update_habit(
         habit.title = title
     if description is not None:
         habit.description = description
+    if category is not None:
+        habit.category = category
     if frequency is not None:
         habit.frequency = frequency
     session.flush()
