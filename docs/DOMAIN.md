@@ -34,6 +34,28 @@ _Avoid_: model, backend, vendor
 One recorded invocation of an LLM Provider for a single Message — captures provider, model, token counts, latency, and cost. This is the unit analytics/optimization work is built on.
 _Avoid_: LLM call, request, completion, generation
 
+### Task & habit tracking
+
+**Goal**:
+An achievable target the user is working toward (e.g. "run a marathon"), with a lifecycle: active, completed (achieved), or archived (abandoned without completing).
+_Avoid_: objective, target
+
+**Category**:
+An open-ended life area (e.g. "work", "health") used to group Goals, Tasks, and Habits. Purely organizational — never itself completed or archived, unlike a Goal.
+_Avoid_: tag, label, area
+
+**Task**:
+A one-off action item with a single completion point (e.g. "buy milk"). May optionally belong to a Goal it contributes to, and/or a Category.
+_Avoid_: to-do, item
+
+**Habit**:
+A recurring behavior tracked over time (e.g. "meditate daily") rather than a one-time action — it has no completion point of its own, only occurrences recorded as HabitLogs. May optionally belong to a Goal and/or a Category.
+_Avoid_: routine, recurring task
+
+**HabitLog**:
+A single recorded occurrence of a Habit being performed, with an optional note. "Completing" a Habit means appending a HabitLog, not marking the Habit itself done.
+_Avoid_: habit completion, check-in
+
 ### Analytics
 
 **Event**:
