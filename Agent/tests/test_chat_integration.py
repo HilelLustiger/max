@@ -1,5 +1,9 @@
+import app.api.chat as chat_module
 import pytest
+from app.graph.build import build_graph
+from app.llm.fake_provider import FakeProvider
 from app.main import app
+from app.tools.tasks import TASK_TOOLS
 from db.session import get_session
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -51,6 +55,36 @@ def test_chat_generates_request_id_when_absent(clean_db):
         request_id = session.execute(text("SELECT request_id FROM llm_metrics")).scalar_one()
         assert request_id is not None
         assert request_id != "caller-supplied-id"
+
+
+def test_chat_returns_clarification_when_agent_requests_it(clean_db, monkeypatch):
+    provider = FakeProvider(
+        tool_calls=[
+            {
+                "name": "request_clarification",
+                "args": {
+                    "field": "due_date",
+                    "question": "When is it due?",
+                    "options": ["Today", "Tomorrow", "Next week"],
+                },
+                "id": "fake-call-1",
+            }
+        ]
+    )
+    monkeypatch.setattr(chat_module, "_graph", build_graph(provider, tools=TASK_TOOLS))
+
+    response = client.post(
+        "/chat", json={"channel": "test", "external_id": "user-5", "text": "add a task"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "reply": "When is it due?",
+        "clarification": {
+            "field": "due_date",
+            "question": "When is it due?",
+            "options": ["Today", "Tomorrow", "Next week"],
+        },
+    }
 
 
 def test_chat_reuses_conversation_history(clean_db):

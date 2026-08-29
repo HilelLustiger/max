@@ -33,6 +33,33 @@ def test_graph_runs_full_tool_call_round_trip():
     assert reply.content == "fake reply using tool result: 12:00"
 
 
+def test_graph_routes_clarification_tool_call_without_executing_it():
+    provider = FakeProvider(
+        tool_calls=[
+            {
+                "name": "request_clarification",
+                "args": {
+                    "field": "due_date",
+                    "question": "When is it due?",
+                    "options": ["Today", "Tomorrow", "Next week"],
+                },
+                "id": "fake-call-1",
+            }
+        ]
+    )
+    graph = build_graph(provider, tools=[get_time])
+    result = graph.invoke({"messages": [HumanMessage(content="add a task")]})
+
+    reply = result["messages"][-1]
+    assert reply.content == "When is it due?"
+    assert reply.response_metadata["clarification"] == {
+        "field": "due_date",
+        "question": "When is it due?",
+        "options": ["Today", "Tomorrow", "Next week"],
+    }
+    assert "ToolMessage" not in [type(m).__name__ for m in result["messages"]]
+
+
 def test_process_tool_result_truncates_long_output():
     long_content = "x" * (MAX_TOOL_RESULT_CHARS + 500)
 

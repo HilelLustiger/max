@@ -34,11 +34,18 @@ class ChatRequest(BaseModel):
     text: str
 
 
+class ClarificationResponse(BaseModel):
+    field: str
+    question: str
+    options: list[str]
+
+
 class ChatResponse(BaseModel):
     reply: str
+    clarification: ClarificationResponse | None = None
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) -> ChatResponse:
     request_id = x_request_id or uuid.uuid4().hex
     logger.info(
@@ -148,4 +155,6 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
         "message_sent",
         extra={"event": "message_sent", "request_id": request_id, "channel": request.channel},
     )
-    return ChatResponse(reply=reply_message.content)
+    clarification_data = meta.get("clarification")
+    clarification = ClarificationResponse(**clarification_data) if clarification_data else None
+    return ChatResponse(reply=reply_message.content, clarification=clarification)
