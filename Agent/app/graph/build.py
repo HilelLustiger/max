@@ -9,7 +9,7 @@ from langgraph.types import Command
 
 from app.graph.state import AgentState
 from app.llm.contract import LLMProvider
-from app.tools.clarification import CLARIFICATION_TOOL_NAME, request_clarification
+from app.tools.clarification import CLARIFICATION_TOOL_NAME
 
 
 def _build_system_prompt() -> str:
@@ -115,8 +115,7 @@ def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
 def build_graph(provider: LLMProvider, tools: list[BaseTool] | None = None):
     tools = tools or []
     graph = StateGraph(AgentState)
-    model_tools = [*tools, request_clarification] if tools else tools
-    graph.add_node("call_model", _build_call_model(provider, model_tools))
+    graph.add_node("call_model", _build_call_model(provider, tools))
     graph.add_edge(START, "call_model")
 
     if tools:
