@@ -56,6 +56,35 @@ def _process_tool_result(request: ToolCallRequest, execute) -> ToolMessage | Com
     return result
 
 
+def _prepare_turn_node(state: AgentState) -> AgentState:
+    """Decide whether the latest message resolves a pending clarification. If it matches one
+    of the stored options by value, stash the completed tool call in `resume` for the
+    resume_tool node to execute - this is the only place that decision gets made."""
+    pending = state.get("pending_clarification")
+    if not pending:
+        return {}
+    last_text = state["messages"][-1].content
+    matched = next((o for o in pending["options"] if o["value"] == last_text), None)
+    if matched is None:
+        return {}
+    final_args = {**pending["known_args"], pending["field"]: matched["value"] or None}
+    return {"resume": {"tool": pending["tool"], "args": final_args}}
+
+
+def _route_after_prepare(state: AgentState) -> str:
+    return "resume_tool" if state.get("resume") else "call_model"
+
+
+def _resume_tool_node(tool_registry: dict[str, BaseTool]):
+    def resume_tool(state: AgentState) -> AgentState:
+        resume = state["resume"]
+        tool_result = tool_registry[resume["tool"]].invoke(resume["args"])
+        reply = AIMessage(content=tool_result, response_metadata={"resumed": True})
+        return {"messages": [reply]}
+
+    return resume_tool
+
+
 def _route_after_model(state: AgentState) -> str:
     last_message = state["messages"][-1]
     tool_calls = getattr(last_message, "tool_calls", None) or []
@@ -76,6 +105,8 @@ def _clarification_node(state: AgentState) -> AgentState:
         response_metadata={
             **last_message.response_metadata,
             "clarification": {
+                "tool": args["tool"],
+                "known_args": args["known_args"],
                 "field": args["field"],
                 "question": args["question"],
                 "options": args["options"],
@@ -116,9 +147,19 @@ def build_graph(provider: LLMProvider, tools: list[BaseTool] | None = None):
     tools = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("call_model", _build_call_model(provider, tools))
-    graph.add_edge(START, "call_model")
 
     if tools:
+        tool_registry = {t.name: t for t in tools}
+        graph.add_node("prepare_turn", _prepare_turn_node)
+        graph.add_node("resume_tool", _resume_tool_node(tool_registry))
+        graph.add_edge(START, "prepare_turn")
+        graph.add_conditional_edges(
+            "prepare_turn",
+            _route_after_prepare,
+            {"resume_tool": "resume_tool", "call_model": "call_model"},
+        )
+        graph.add_edge("resume_tool", END)
+
         graph.add_node("tools", ToolNode(tools, wrap_tool_call=_process_tool_result))
         graph.add_node("clarification", _clarification_node)
         graph.add_conditional_edges(
@@ -129,6 +170,7 @@ def build_graph(provider: LLMProvider, tools: list[BaseTool] | None = None):
         graph.add_edge("tools", "call_model")
         graph.add_edge("clarification", END)
     else:
+        graph.add_edge(START, "call_model")
         graph.add_edge("call_model", END)
 
     return graph.compile()

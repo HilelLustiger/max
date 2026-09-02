@@ -1,23 +1,16 @@
 import logging
 import uuid
 
-from db.conversation import (
-    add_message,
-    create_conversation,
-    get_conversation,
-    recent_messages,
-    record_event,
-    record_llm_metrics,
-)
 from db.session import get_session
 from fastapi import APIRouter, Header
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage
 from pydantic import BaseModel
 
+from app.conversation_service import load_turn, persist_turn_failure, persist_turn_result
 from app.graph.build import build_graph
 from app.llm.factory import get_provider
-from app.llm.pricing import estimate_cost_usd
 from app.tools import ALL_TOOLS
+from app.tools.clarification import ClarificationOption
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -34,15 +27,9 @@ class ChatRequest(BaseModel):
     text: str
 
 
-class ClarificationResponse(BaseModel):
-    field: str
-    question: str
-    options: list[str]
-
-
 class ChatResponse(BaseModel):
     reply: str
-    clarification: ClarificationResponse | None = None
+    options: list[ClarificationOption] | None = None
 
 
 @router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
@@ -54,107 +41,58 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     )
 
     with get_session() as session:
-        conversation = get_conversation(session, request.channel, request.external_id)
-        if conversation is None:
-            conversation = create_conversation(session, request.channel, request.external_id)
-        history = [
-            AIMessage(content=m.content) if m.role == "assistant" else HumanMessage(content=m.content)
-            for m in recent_messages(session, conversation.id)
-        ]
-        user_message = add_message(session, conversation.id, role="user", content=request.text)
-        record_event(
-            session, "message_received", conversation_id=conversation.id, request_id=request_id
-        )
+        ctx = load_turn(session, request.channel, request.external_id, request.text, request_id)
 
     logger.info(
-        "llm_call_start",
+        "graph_call_start",
         extra={
-            "event": "llm_call_start",
+            "event": "graph_call_start",
             "request_id": request_id,
-            "conversation_id": conversation.id,
+            "conversation_id": ctx.conversation_id,
         },
     )
     try:
-        result = _graph.invoke({"messages": [*history, HumanMessage(content=request.text)]})
-        reply_message = result["messages"][-1]
+        result = _graph.invoke(
+            {"messages": ctx.messages, "pending_clarification": ctx.pending_clarification}
+        )
+        reply_message: AIMessage = result["messages"][-1]
     except Exception:
         logger.exception(
-            "llm_call_failed",
+            "graph_call_failed",
             extra={
-                "event": "llm_call_failed",
+                "event": "graph_call_failed",
                 "request_id": request_id,
-                "conversation_id": conversation.id,
+                "conversation_id": ctx.conversation_id,
             },
         )
         with get_session() as session:
-            record_llm_metrics(
-                session,
-                message_id=user_message.id,
-                request_id=request_id,
-                provider=_provider.__class__.__name__,
-                model="unknown",
-                error="llm_call_failed",
-            )
-            record_event(
-                session, "error", conversation_id=conversation.id, request_id=request_id
+            persist_turn_failure(
+                session, ctx.conversation_id, ctx.user_message_id, request_id, _provider.__class__.__name__
             )
         return ChatResponse(reply=FALLBACK_REPLY)
 
-    usage = reply_message.usage_metadata or {}
     meta = reply_message.response_metadata or {}
-    input_tokens = usage.get("input_tokens")
-    output_tokens = usage.get("output_tokens")
-    cache_creation_input_tokens = meta.get("cache_creation_input_tokens")
-    cache_read_input_tokens = meta.get("cache_read_input_tokens")
-    provider_name = meta.get("provider", "unknown")
-    model_name = meta.get("model", "unknown")
-
     logger.info(
-        "llm_call_end",
+        "graph_call_end",
         extra={
-            "event": "llm_call_end",
+            "event": "graph_call_end",
             "request_id": request_id,
-            "conversation_id": conversation.id,
-            "provider": provider_name,
-            "model": model_name,
+            "conversation_id": ctx.conversation_id,
+            "provider": meta.get("provider"),
+            "model": meta.get("model"),
             "latency_ms": meta.get("latency_ms"),
-            "input_tokens": input_tokens,
-            "output_tokens": output_tokens,
         },
     )
 
     with get_session() as session:
-        add_message(session, conversation.id, role="assistant", content=reply_message.content)
-        record_llm_metrics(
-            session,
-            message_id=user_message.id,
-            request_id=request_id,
-            provider=provider_name,
-            model=model_name,
-            system_prompt=meta.get("system_prompt"),
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cache_creation_input_tokens=cache_creation_input_tokens,
-            cache_read_input_tokens=cache_read_input_tokens,
-            finish_reason=meta.get("finish_reason"),
-            latency_ms=meta.get("latency_ms"),
-            cost_usd=estimate_cost_usd(
-                provider_name,
-                model_name,
-                input_tokens,
-                output_tokens,
-                cache_creation_input_tokens,
-                cache_read_input_tokens,
-            ),
-        )
-        record_event(
-            session, "message_sent", conversation_id=conversation.id, request_id=request_id
-        )
+        persist_turn_result(session, ctx, request_id, reply_message)
 
     logger.info(
         "message_sent",
         extra={"event": "message_sent", "request_id": request_id, "channel": request.channel},
     )
     clarification_data = meta.get("clarification")
-    clarification = ClarificationResponse(**clarification_data) if clarification_data else None
-    return ChatResponse(reply=reply_message.content, clarification=clarification)
+    options = (
+        [ClarificationOption(**o) for o in clarification_data["options"]] if clarification_data else None
+    )
+    return ChatResponse(reply=reply_message.content, options=options)

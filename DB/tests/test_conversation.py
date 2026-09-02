@@ -47,11 +47,11 @@ def test_set_and_clear_pending_clarification(clean_db):
             "options": [{"label": "היום", "value": "2026-08-29"}],
         }
 
-        set_pending_clarification(session, conversation, data)
+        set_pending_clarification(session, conversation.id, data)
         found = get_conversation(session, "test", "user-1")
         assert found.pending_clarification == data
 
-        clear_pending_clarification(session, conversation)
+        clear_pending_clarification(session, conversation.id)
         found = get_conversation(session, "test", "user-1")
         assert found.pending_clarification is None
 

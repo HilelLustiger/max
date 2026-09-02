@@ -18,15 +18,15 @@ def create_conversation(session: Session, channel: str, external_id: str) -> Con
     return conversation
 
 
-def set_pending_clarification(
-    session: Session, conversation: Conversation, data: dict
-) -> Conversation:
+def set_pending_clarification(session: Session, conversation_id: str, data: dict) -> Conversation:
+    conversation = session.get(Conversation, conversation_id)
     conversation.pending_clarification = data
     session.flush()
     return conversation
 
 
-def clear_pending_clarification(session: Session, conversation: Conversation) -> Conversation:
+def clear_pending_clarification(session: Session, conversation_id: str) -> Conversation:
+    conversation = session.get(Conversation, conversation_id)
     conversation.pending_clarification = None
     session.flush()
     return conversation

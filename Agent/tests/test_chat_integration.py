@@ -4,6 +4,7 @@ from app.graph.build import build_graph
 from app.llm.fake_provider import FakeProvider
 from app.main import app
 from app.tools.tasks import TASK_TOOLS
+from db.conversation import create_conversation, set_pending_clarification
 from db.session import get_session
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -58,14 +59,17 @@ def test_chat_generates_request_id_when_absent(clean_db):
 
 
 def test_chat_returns_clarification_when_agent_requests_it(clean_db, monkeypatch):
+    options = [{"label": "Today", "value": "2026-08-29"}, {"label": "Tomorrow", "value": "2026-08-30"}]
     provider = FakeProvider(
         tool_calls=[
             {
                 "name": "request_clarification",
                 "args": {
+                    "tool": "create_task",
+                    "known_args": {"title": "Buy milk"},
                     "field": "due_date",
                     "question": "When is it due?",
-                    "options": ["Today", "Tomorrow", "Next week"],
+                    "options": options,
                 },
                 "id": "fake-call-1",
             }
@@ -77,14 +81,101 @@ def test_chat_returns_clarification_when_agent_requests_it(clean_db, monkeypatch
         "/chat", json={"channel": "test", "external_id": "user-5", "text": "add a task"}
     )
     assert response.status_code == 200
-    assert response.json() == {
-        "reply": "When is it due?",
-        "clarification": {
+    assert response.json() == {"reply": "When is it due?", "options": options}
+
+    with get_session() as session:
+        pending = session.execute(
+            text(
+                "SELECT pending_clarification FROM conversations "
+                "WHERE channel = 'test' AND external_id = 'user-5'"
+            )
+        ).scalar_one()
+        assert pending == {
+            "tool": "create_task",
+            "known_args": {"title": "Buy milk"},
             "field": "due_date",
             "question": "When is it due?",
-            "options": ["Today", "Tomorrow", "Next week"],
-        },
-    }
+            "options": options,
+        }
+
+
+def test_chat_resumes_pending_clarification_deterministically(clean_db):
+    with get_session() as session:
+        conversation = create_conversation(session, "test", "user-6")
+        set_pending_clarification(
+            session,
+            conversation.id,
+            {
+                "tool": "create_task",
+                "known_args": {"title": "Buy milk"},
+                "field": "due_date",
+                "question": "When is it due?",
+                "options": [{"label": "Today", "value": "2026-09-01"}, {"label": "No date", "value": ""}],
+            },
+        )
+
+    response = client.post(
+        "/chat", json={"channel": "test", "external_id": "user-6", "text": "2026-09-01"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert "Buy milk" in body["reply"]
+    assert "options" not in body
+
+    with get_session() as session:
+        task = session.execute(
+            text("SELECT title, due_date FROM tasks WHERE title = 'Buy milk'")
+        ).one()
+        assert task.due_date is not None
+
+        pending = session.execute(
+            text(
+                "SELECT pending_clarification FROM conversations "
+                "WHERE channel = 'test' AND external_id = 'user-6'"
+            )
+        ).scalar_one()
+        assert pending is None
+
+        event_types = set(
+            session.execute(
+                text("SELECT type FROM events WHERE conversation_id = :cid"), {"cid": conversation.id}
+            ).scalars()
+        )
+        assert "clarification_resumed" in event_types
+
+        metrics_count = session.execute(text("SELECT count(*) FROM llm_metrics")).scalar_one()
+        assert metrics_count == 0
+
+
+def test_chat_falls_through_to_llm_when_reply_does_not_match_pending_options(clean_db):
+    with get_session() as session:
+        conversation = create_conversation(session, "test", "user-7")
+        set_pending_clarification(
+            session,
+            conversation.id,
+            {
+                "tool": "create_task",
+                "known_args": {"title": "Buy milk"},
+                "field": "due_date",
+                "question": "When is it due?",
+                "options": [{"label": "Today", "value": "2026-09-01"}],
+            },
+        )
+
+    response = client.post(
+        "/chat", json={"channel": "test", "external_id": "user-7", "text": "actually nevermind"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"reply": "fake reply to: actually nevermind"}
+
+    with get_session() as session:
+        pending = session.execute(
+            text(
+                "SELECT pending_clarification FROM conversations "
+                "WHERE channel = 'test' AND external_id = 'user-7'"
+            )
+        ).scalar_one()
+        assert pending is None
 
 
 def test_chat_reuses_conversation_history(clean_db):

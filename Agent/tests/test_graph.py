@@ -44,14 +44,20 @@ def test_graph_runs_full_tool_call_round_trip():
 
 
 def test_graph_routes_clarification_tool_call_without_executing_it():
+    options = [
+        {"label": "Today", "value": "2026-08-29"},
+        {"label": "Tomorrow", "value": "2026-08-30"},
+    ]
     provider = FakeProvider(
         tool_calls=[
             {
                 "name": "request_clarification",
                 "args": {
+                    "tool": "create_task",
+                    "known_args": {"title": "Buy milk"},
                     "field": "due_date",
                     "question": "When is it due?",
-                    "options": ["Today", "Tomorrow", "Next week"],
+                    "options": options,
                 },
                 "id": "fake-call-1",
             }
@@ -63,11 +69,52 @@ def test_graph_routes_clarification_tool_call_without_executing_it():
     reply = result["messages"][-1]
     assert reply.content == "When is it due?"
     assert reply.response_metadata["clarification"] == {
+        "tool": "create_task",
+        "known_args": {"title": "Buy milk"},
         "field": "due_date",
         "question": "When is it due?",
-        "options": ["Today", "Tomorrow", "Next week"],
+        "options": options,
     }
     assert "ToolMessage" not in [type(m).__name__ for m in result["messages"]]
+
+
+def test_graph_resumes_pending_clarification_that_matches_without_calling_the_provider():
+    pending = {
+        "tool": "get_time",
+        "known_args": {},
+        "field": "confirm",
+        "question": "Sure?",
+        "options": [{"label": "Yes", "value": "yes"}],
+    }
+    provider = FakeProvider()
+    graph = build_graph(provider, tools=[get_time])
+    result = graph.invoke(
+        {"messages": [HumanMessage(content="yes")], "pending_clarification": pending}
+    )
+
+    reply = result["messages"][-1]
+    assert reply.content == "12:00"
+    assert reply.response_metadata["resumed"] is True
+    assert provider.call_count == 0
+
+
+def test_graph_falls_through_to_model_when_message_does_not_match_pending_options():
+    pending = {
+        "tool": "get_time",
+        "known_args": {},
+        "field": "confirm",
+        "question": "Sure?",
+        "options": [{"label": "Yes", "value": "yes"}],
+    }
+    provider = FakeProvider()
+    graph = build_graph(provider, tools=[get_time])
+    result = graph.invoke(
+        {"messages": [HumanMessage(content="actually nevermind")], "pending_clarification": pending}
+    )
+
+    reply = result["messages"][-1]
+    assert reply.content == "fake reply to: actually nevermind"
+    assert provider.call_count == 1
 
 
 def test_process_tool_result_truncates_long_output():
