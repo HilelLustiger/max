@@ -150,7 +150,10 @@ test("message:text clarification path replies with an inline keyboard instead of
     new Response(
       JSON.stringify({
         reply: "When is it due?",
-        clarification: { field: "due_date", question: "When is it due?", options: ["Today", "Tomorrow"] },
+        options: [
+          { label: "Today", value: "2026-08-29" },
+          { label: "Tomorrow", value: "2026-08-30" },
+        ],
       }),
       { status: 200 },
     )) as typeof fetch;
@@ -161,15 +164,15 @@ test("message:text clarification path replies with an inline keyboard instead of
     assert.deepEqual(sentMessages, ["When is it due?"]);
     const keyboard = sentKeyboards[0] as { inline_keyboard: { text: string; callback_data: string }[][] };
     assert.deepEqual(
-      keyboard.inline_keyboard.map((row) => row.map((button) => button.text)),
-      [["Today"], ["Tomorrow"]],
+      keyboard.inline_keyboard.map((row) => row.map((button) => ({ text: button.text, value: button.callback_data }))),
+      [[{ text: "Today", value: "2026-08-29" }], [{ text: "Tomorrow", value: "2026-08-30" }]],
     );
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
-test("callback_query press sends the selected option back to the agent and answers the callback", async () => {
+test("callback_query press sends the selected option's value back to the agent and answers the callback", async () => {
   const originalFetch = globalThis.fetch;
   let capturedBody: unknown;
   globalThis.fetch = (async (_url: string, init: RequestInit) => {
@@ -179,8 +182,8 @@ test("callback_query press sends the selected option back to the agent and answe
 
   try {
     const { bot, sentMessages, answeredCallbacks } = await createTestBot();
-    await bot.handleUpdate(callbackQueryUpdate("Today"));
-    assert.deepEqual(capturedBody, { channel: "telegram", external_id: "42", text: "Today" });
+    await bot.handleUpdate(callbackQueryUpdate("2026-08-29"));
+    assert.deepEqual(capturedBody, { channel: "telegram", external_id: "42", text: "2026-08-29" });
     assert.deepEqual(sentMessages, ["✅ Task created"]);
     assert.equal(answeredCallbacks.length, 1);
   } finally {
