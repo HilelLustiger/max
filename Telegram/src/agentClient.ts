@@ -1,14 +1,13 @@
 import { config } from "./config.js";
 
-export interface ClarificationResponse {
-  field: string;
-  question: string;
-  options: string[];
+export interface ClarificationOption {
+  label: string;
+  value: string;
 }
 
 export interface ChatResponse {
   reply: string;
-  clarification?: ClarificationResponse;
+  options?: ClarificationOption[];
 }
 
 export async function askAgent(

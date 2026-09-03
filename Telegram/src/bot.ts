@@ -15,11 +15,11 @@ async function replyWithAgentResponse(
   requestId: string,
 ): Promise<void> {
   const response = await askAgent(chatId, text, requestId);
-  if (response.clarification) {
+  if (response.options) {
     const keyboard = new InlineKeyboard(
-      response.clarification.options.map((option) => [InlineKeyboard.text(option, option)]),
+      response.options.map((option) => [InlineKeyboard.text(option.label, option.value)]),
     );
-    await ctx.reply(response.clarification.question, { reply_markup: keyboard });
+    await ctx.reply(response.reply, { reply_markup: keyboard });
   } else {
     await ctx.reply(response.reply);
   }
