@@ -28,12 +28,16 @@ class LangChainProvider:
             anthropic_tools[-1] = {**anthropic_tools[-1], "cache_control": {"type": "ephemeral"}}
             chat_model = chat_model.bind_tools(anthropic_tools)
 
+        # The system prompt is identical across calls within a conversation (only the date
+        # segment changes, at most once a day), so it's cacheable the same way tool schemas are.
+        system_message = SystemMessage(
+            content=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+        )
+
         callback = UsageCallbackHandler()
         start = time.monotonic()
         try:
-            result = chat_model.invoke(
-                [SystemMessage(content=system), *messages], config={"callbacks": [callback]}
-            )
+            result = chat_model.invoke([system_message, *messages], config={"callbacks": [callback]})
         except Exception:
             elapsed_ms = int((time.monotonic() - start) * 1000)
             logger.exception(

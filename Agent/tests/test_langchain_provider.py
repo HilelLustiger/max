@@ -26,6 +26,24 @@ def test_generate_without_tools_does_not_bind_tools(monkeypatch):
     assert response.tool_calls == []
 
 
+def test_generate_sends_system_prompt_with_cache_control(monkeypatch):
+    provider = LangChainProvider(provider="anthropic", model="fake-model", api_key="test")
+    invoke = MagicMock(return_value=AIMessage(content="hi"))
+    monkeypatch.setattr(type(provider._chat_model), "invoke", invoke)
+
+    provider.generate([HumanMessage(content="hello")], system="you are a helpful assistant")
+
+    sent_messages = invoke.call_args.args[0]
+    system_message = sent_messages[0]
+    assert system_message.content == [
+        {
+            "type": "text",
+            "text": "you are a helpful assistant",
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+
 def test_generate_with_tools_binds_tools_with_cache_control_on_last_one(monkeypatch):
     provider = LangChainProvider(provider="anthropic", model="fake-model", api_key="test")
 
