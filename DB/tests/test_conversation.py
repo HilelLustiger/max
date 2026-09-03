@@ -4,7 +4,6 @@ from db.conversation import (
     clear_pending_clarification,
     create_conversation,
     get_conversation,
-    recent_messages,
     record_event,
     record_llm_metrics,
     set_pending_clarification,
@@ -24,16 +23,6 @@ def test_create_then_get_conversation_round_trips(clean_db):
         created = create_conversation(session, "test", "user-1")
         found = get_conversation(session, "test", "user-1")
         assert found.id == created.id
-
-
-def test_recent_messages_ordered_and_limited(clean_db):
-    with get_session() as session:
-        conversation = create_conversation(session, "test", "user-1")
-        for i in range(3):
-            add_message(session, conversation.id, role="user", content=f"msg-{i}")
-
-        messages = recent_messages(session, conversation.id, limit=2)
-        assert [m.content for m in messages] == ["msg-0", "msg-1"]
 
 
 def test_set_and_clear_pending_clarification(clean_db):

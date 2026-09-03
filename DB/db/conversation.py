@@ -32,16 +32,6 @@ def clear_pending_clarification(session: Session, conversation_id: str) -> Conve
     return conversation
 
 
-def recent_messages(session: Session, conversation_id: str, limit: int = 50) -> list[Message]:
-    stmt = (
-        select(Message)
-        .where(Message.conversation_id == conversation_id)
-        .order_by(Message.created_at.asc())
-        .limit(limit)
-    )
-    return list(session.scalars(stmt))
-
-
 def add_message(session: Session, conversation_id: str, role: str, content: str) -> Message:
     message = Message(conversation_id=conversation_id, role=role, content=content)
     session.add(message)
