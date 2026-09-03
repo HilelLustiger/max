@@ -2,6 +2,7 @@ import datetime
 
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
@@ -143,7 +144,11 @@ def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
     return call_model
 
 
-def build_graph(provider: LLMProvider, tools: list[BaseTool] | None = None):
+def build_graph(
+    provider: LLMProvider,
+    tools: list[BaseTool] | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
+):
     tools = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("call_model", _build_call_model(provider, tools))
@@ -173,4 +178,4 @@ def build_graph(provider: LLMProvider, tools: list[BaseTool] | None = None):
         graph.add_edge(START, "call_model")
         graph.add_edge("call_model", END)
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

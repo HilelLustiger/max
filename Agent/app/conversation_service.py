@@ -5,7 +5,6 @@ from db.conversation import (
     clear_pending_clarification,
     create_conversation,
     get_conversation,
-    recent_messages,
     record_event,
     record_llm_metrics,
     set_pending_clarification,
@@ -25,16 +24,14 @@ class TurnContext:
 
 
 def load_turn(session: Session, channel: str, external_id: str, text: str, request_id: str) -> TurnContext:
-    """Load everything the graph needs for one turn, and persist the incoming user message."""
+    """Load everything the graph needs for one turn, and persist the incoming user message.
+    Prior-turn history is no longer reconstructed here - the graph's checkpointer (keyed by
+    conversation_id as thread_id, see ADR-0007) supplies it automatically."""
     conversation = get_conversation(session, channel, external_id)
     if conversation is None:
         conversation = create_conversation(session, channel, external_id)
 
-    messages = [
-        AIMessage(content=m.content) if m.role == "assistant" else HumanMessage(content=m.content)
-        for m in recent_messages(session, conversation.id)
-    ]
-    messages.append(HumanMessage(content=text))
+    messages = [HumanMessage(content=text)]
 
     pending_clarification = conversation.pending_clarification
     user_message = add_message(session, conversation.id, role="user", content=text)

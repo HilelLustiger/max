@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from app.conversation_service import load_turn, persist_turn_failure, persist_turn_result
 from app.graph.build import build_graph
+from app.graph.checkpointer import build_checkpointer
 from app.llm.factory import get_provider
 from app.tools import ALL_TOOLS
 from app.tools.clarification import ClarificationOption
@@ -16,7 +17,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _provider = get_provider()
-_graph = build_graph(_provider, tools=ALL_TOOLS)
+_checkpointer = build_checkpointer()
+_graph = build_graph(_provider, tools=ALL_TOOLS, checkpointer=_checkpointer)
 
 FALLBACK_REPLY = "Sorry, I'm having trouble responding right now. Please try again in a moment."
 
@@ -53,7 +55,8 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     )
     try:
         result = _graph.invoke(
-            {"messages": ctx.messages, "pending_clarification": ctx.pending_clarification}
+            {"messages": ctx.messages, "pending_clarification": ctx.pending_clarification},
+            config={"configurable": {"thread_id": ctx.conversation_id}},
         )
         reply_message: AIMessage = result["messages"][-1]
     except Exception:
