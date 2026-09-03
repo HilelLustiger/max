@@ -18,11 +18,13 @@ class FakeProvider:
     def __init__(self, tool_calls: list[ToolCall] | None = None):
         self._tool_call_queue = list(tool_calls) if tool_calls else []
         self.call_count = 0
+        self.last_messages: list[BaseMessage] = []
 
     def generate(
         self, messages: list[BaseMessage], system: str, tools: list[BaseTool] | None = None
     ) -> LLMResponse:
         self.call_count += 1
+        self.last_messages = messages
         last_message = messages[-1] if messages else None
 
         if isinstance(last_message, ToolMessage):

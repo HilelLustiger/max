@@ -1,6 +1,6 @@
 import datetime
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage, trim_messages
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -8,6 +8,7 @@ from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
+from app.config import settings
 from app.graph.state import AgentState
 from app.llm.contract import LLMProvider
 from app.tools.clarification import CLARIFICATION_TOOL_NAME
@@ -120,7 +121,17 @@ def _clarification_node(state: AgentState) -> AgentState:
 def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
     def call_model(state: AgentState) -> AgentState:
         system_prompt = _build_system_prompt()
-        response = provider.generate(state["messages"], system=system_prompt, tools=tools or None)
+        # The checkpoint keeps full history; only this trimmed slice goes to the LLM call.
+        # "approximate" is a local char-count heuristic - LangChain's own recommendation for
+        # the hot path, since the real Anthropic tokenizer is a network call per count.
+        trimmed_messages = trim_messages(
+            state["messages"],
+            max_tokens=settings.max_history_tokens,
+            token_counter="approximate",
+            strategy="last",
+            start_on="human",
+        )
+        response = provider.generate(trimmed_messages, system=system_prompt, tools=tools or None)
         reply = AIMessage(
             content=response.text,
             tool_calls=response.tool_calls,

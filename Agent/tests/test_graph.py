@@ -2,7 +2,7 @@ import datetime
 
 from app.graph.build import MAX_TOOL_RESULT_CHARS, _process_tool_result, build_graph
 from app.llm.fake_provider import FakeProvider
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
 
@@ -115,6 +115,30 @@ def test_graph_falls_through_to_model_when_message_does_not_match_pending_option
     reply = result["messages"][-1]
     assert reply.content == "fake reply to: actually nevermind"
     assert provider.call_count == 1
+
+
+def test_call_model_trims_history_sent_to_the_provider_but_keeps_full_state(monkeypatch):
+    monkeypatch.setattr("app.graph.build.settings.max_history_tokens", 30)
+    provider = FakeProvider()
+    graph = build_graph(provider)
+
+    old_turns = [
+        HumanMessage(content="first question " * 20),
+        AIMessage(content="first answer " * 20),
+        HumanMessage(content="second question " * 20),
+        AIMessage(content="second answer " * 20),
+    ]
+    latest = HumanMessage(content="third question")
+
+    result = graph.invoke({"messages": [*old_turns, latest]})
+
+    # The provider only saw a trimmed, human-starting slice - not the full history.
+    assert len(provider.last_messages) < len(old_turns) + 1
+    assert isinstance(provider.last_messages[0], HumanMessage)
+    assert provider.last_messages[-1] is latest
+
+    # The graph's own state (what a checkpointer would persist) keeps everything.
+    assert len(result["messages"]) == len(old_turns) + 2  # +1 latest, +1 new reply
 
 
 def test_process_tool_result_truncates_long_output():
