@@ -35,6 +35,9 @@ def create_task(title: str, category: str | None = None, due_date: str | None = 
     first to see categories already in use, then call request_clarification the same way with
     field="category", offering those as options (plus a "No category" option with value="").
     If no categories exist yet, skip clarification and leave category unset.
+
+    The result includes the task's internal id ("מזהה") for your own bookkeeping (e.g. a later
+    complete_task call) - never mention it to the user, they don't need it.
     """
     try:
         parsed_due_date = _parse_due_date(due_date)
@@ -56,6 +59,11 @@ def list_tasks(status: str | None = None, category: str | None = None) -> str:
     """List tasks, optionally filtered by status and/or category.
 
     status must be one of: not_started, in_progress, done. Omit to list all statuses.
+
+    When presenting the result to the user, group tasks by category instead of relaying the
+    raw list as-is - tasks with no category go under a general heading. The result includes
+    each task's internal id ("מזהה") for your own bookkeeping (e.g. a later complete_task
+    call) - never mention it to the user, they don't need it.
     """
     parsed_status = None
     if status is not None:
@@ -84,7 +92,11 @@ def list_tasks(status: str | None = None, category: str | None = None) -> str:
 
 @tool
 def complete_task(task_id: str) -> str:
-    """Mark a task as done, given its id."""
+    """Mark a task as done, given its id.
+
+    Get the id from an earlier list_tasks result in this conversation, or call list_tasks
+    yourself to find it by title - never ask the user for the id, they don't see it.
+    """
     with get_session() as session:
         task = db_complete_task(session, task_id)
     if task is None:

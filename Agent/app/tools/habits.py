@@ -12,6 +12,9 @@ def create_habit(title: str, category: str | None = None, frequency: str = "dail
     """Create a new recurring habit to track (e.g. frequency: "daily", "weekly").
 
     category is a free-text grouping label (e.g. "work", "health"), independent of any goal.
+
+    The result includes the habit's internal id ("מזהה") for your own bookkeeping (e.g. a
+    later log_habit call) - never mention it to the user, they don't need it.
     """
     with get_session() as session:
         habit = db_create_habit(session, title=title, category=category, frequency=frequency)
@@ -26,6 +29,11 @@ def list_habits(status: str | None = None, category: str | None = None) -> str:
     """List habits, optionally filtered by status and/or category.
 
     status must be 'active' or 'archived'; defaults to 'active'.
+
+    When presenting the result to the user, group habits by category instead of relaying the
+    raw list as-is - habits with no category go under a general heading. The result includes
+    each habit's internal id ("מזהה") for your own bookkeeping (e.g. a later log_habit call) -
+    never mention it to the user, they don't need it.
     """
     parsed_status = HabitStatus.ACTIVE
     if status is not None:
@@ -52,7 +60,11 @@ def list_habits(status: str | None = None, category: str | None = None) -> str:
 
 @tool
 def log_habit(habit_id: str, notes: str | None = None) -> str:
-    """Log a completion for a habit, given its id, with optional notes."""
+    """Log a completion for a habit, given its id, with optional notes.
+
+    Get the id from an earlier list_habits result in this conversation, or call list_habits
+    yourself to find it by title - never ask the user for the id, they don't see it.
+    """
     with get_session() as session:
         habit = db_get_habit(session, habit_id)
         if habit is None:

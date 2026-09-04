@@ -24,6 +24,16 @@ def test_graph_includes_todays_date_in_system_prompt():
     assert today in reply.response_metadata["system_prompt"]
 
 
+def test_system_prompt_does_not_tell_the_model_to_refuse_ordinary_questions():
+    """Regression guard for #31: the model once denied context it demonstrably had, anchored
+    by an early instruction framing it as a pure command executor that shouldn't "chat"."""
+    graph = build_graph(FakeProvider())
+    result = graph.invoke({"messages": [HumanMessage(content="hello")]})
+    system_prompt = result["messages"][-1].response_metadata["system_prompt"]
+    assert "not to chat" not in system_prompt
+    assert "never refuse or deflect a question" in system_prompt.lower()
+
+
 @tool
 def get_time() -> str:
     """Return a fixed time, for testing the tool-calling loop."""
