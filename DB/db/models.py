@@ -142,6 +142,33 @@ class HabitLog(Base):
     habit: Mapped[Habit] = relationship(back_populates="logs")
 
 
+class Topic(Base):
+    __tablename__ = "topics"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column()
+    keywords: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    sources: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
+
+    digest_log_entries: Mapped[list["DigestLog"]] = relationship(back_populates="topic")
+
+
+class DigestLog(Base):
+    __tablename__ = "digest_logs"
+    __table_args__ = (UniqueConstraint("topic_id", "article_url"),)
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
+    topic_id: Mapped[str] = mapped_column(ForeignKey("topics.id"))
+    article_url: Mapped[str] = mapped_column()
+    title: Mapped[str] = mapped_column()
+    published_at: Mapped[datetime.datetime | None] = mapped_column(default=None)
+    delivered_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
+
+    topic: Mapped[Topic] = relationship(back_populates="digest_log_entries")
+
+
 class Event(Base):
     __tablename__ = "events"
 
