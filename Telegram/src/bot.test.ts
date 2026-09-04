@@ -190,3 +190,43 @@ test("callback_query press sends the selected option's value back to the agent a
     globalThis.fetch = originalFetch;
   }
 });
+
+test("an option with an empty value gets a non-empty callback_data placeholder (Telegram rejects empty callback_data)", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      JSON.stringify({
+        reply: "When is it due?",
+        options: [{ label: "No due date", value: "" }],
+      }),
+      { status: 200 },
+    )) as typeof fetch;
+
+  try {
+    const { bot, sentKeyboards } = await createTestBot();
+    await bot.handleUpdate(textUpdate("add a task"));
+    const keyboard = sentKeyboards[0] as { inline_keyboard: { text: string; callback_data: string }[][] };
+    const button = keyboard.inline_keyboard[0][0];
+    assert.equal(button.text, "No due date");
+    assert.notEqual(button.callback_data, "");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("pressing the empty-value placeholder button sends an empty string back to the agent", async () => {
+  const originalFetch = globalThis.fetch;
+  let capturedBody: unknown;
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    capturedBody = JSON.parse(init.body as string);
+    return new Response(JSON.stringify({ reply: "✅ Task created" }), { status: 200 });
+  }) as typeof fetch;
+
+  try {
+    const { bot } = await createTestBot();
+    await bot.handleUpdate(callbackQueryUpdate("__empty__"));
+    assert.deepEqual(capturedBody, { channel: "telegram", external_id: "42", text: "" });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

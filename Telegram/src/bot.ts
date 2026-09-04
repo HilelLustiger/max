@@ -8,6 +8,11 @@ const FALLBACK_REPLY = "Sorry, I'm having trouble responding right now. Please t
 const START_REPLY = "Hi! I'm Max. Send me a text message and I'll get back to you.";
 const UNSUPPORTED_REPLY = "I can only handle text messages right now.";
 
+// Telegram rejects an inline button with empty callback_data ("Text buttons are not allowed"),
+// but an option's value can legitimately be "" (e.g. "No due date" - see request_clarification's
+// contract). Stand in a non-empty placeholder for the button and translate it back on tap.
+const EMPTY_VALUE_CALLBACK_DATA = "__empty__";
+
 async function replyWithAgentResponse(
   ctx: Context,
   chatId: string,
@@ -17,7 +22,9 @@ async function replyWithAgentResponse(
   const response = await askAgent(chatId, text, requestId);
   if (response.options) {
     const keyboard = new InlineKeyboard(
-      response.options.map((option) => [InlineKeyboard.text(option.label, option.value)]),
+      response.options.map((option) => [
+        InlineKeyboard.text(option.label, option.value || EMPTY_VALUE_CALLBACK_DATA),
+      ]),
     );
     await ctx.reply(response.reply, { reply_markup: keyboard });
   } else {
@@ -50,7 +57,8 @@ export function createBot(token: string = config.telegramBotToken, options?: Bot
     if (!ctx.chat) return;
     const chatId = String(ctx.chat.id);
     const requestId = randomUUID();
-    const selectedOption = ctx.callbackQuery.data;
+    const selectedOption =
+      ctx.callbackQuery.data === EMPTY_VALUE_CALLBACK_DATA ? "" : ctx.callbackQuery.data;
     logger.info("callback_query_received", { request_id: requestId, chat_id: chatId });
 
     await ctx.answerCallbackQuery();
