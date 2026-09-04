@@ -60,10 +60,13 @@ def list_tasks(status: str | None = None, category: str | None = None) -> str:
 
     status must be one of: not_started, in_progress, done. Omit to list all statuses.
 
-    When presenting the result to the user, group tasks by category instead of relaying the
-    raw list as-is - tasks with no category go under a general heading. The result includes
-    each task's internal id ("מזהה") for your own bookkeeping (e.g. a later complete_task
-    call) - never mention it to the user, they don't need it.
+    When presenting the result to the user, never relay the raw list as-is. Group tasks under
+    a heading per category (sorted alphabetically, tasks with no category last under a general
+    heading), and phrase each task as a natural sentence rather than a technical parenthetical
+    dump - e.g. weave the due date in naturally ("עד ל-6.9") instead of appending
+    "(קטגוריה: ..., יעד: ...)" after every title. Each task should appear once. The result
+    includes each task's internal id ("מזהה") for your own bookkeeping (e.g. a later
+    complete_task call) - never mention it to the user, they don't need it.
     """
     parsed_status = None
     if status is not None:
