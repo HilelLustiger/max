@@ -4,9 +4,15 @@ import uuid
 from db.session import get_session
 from fastapi import APIRouter, Header
 from langchain_core.messages import AIMessage
+from langgraph.types import Command
 from pydantic import BaseModel
 
-from app.conversation_service import load_turn, persist_turn_failure, persist_turn_result
+from app.conversation_service import (
+    load_turn,
+    persist_turn_clarification,
+    persist_turn_failure,
+    persist_turn_result,
+)
 from app.graph.build import build_graph
 from app.graph.checkpointer import build_checkpointer
 from app.llm.factory import get_provider
@@ -45,6 +51,11 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     with get_session() as session:
         ctx = load_turn(session, request.channel, request.external_id, request.text, request_id)
 
+    config = {"configurable": {"thread_id": ctx.conversation_id}}
+    # Whether this turn resumes a pending clarification is the checkpointer's call, via
+    # interrupt() - not a column we track ourselves (see ADR-0008).
+    is_resuming = bool(_graph.get_state(config).interrupts)
+
     logger.info(
         "graph_call_start",
         extra={
@@ -54,11 +65,10 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
         },
     )
     try:
-        result = _graph.invoke(
-            {"messages": ctx.messages, "pending_clarification": ctx.pending_clarification},
-            config={"configurable": {"thread_id": ctx.conversation_id}},
-        )
-        reply_message: AIMessage = result["messages"][-1]
+        if is_resuming:
+            result = _graph.invoke(Command(resume=request.text), config=config)
+        else:
+            result = _graph.invoke({"messages": ctx.messages}, config=config)
     except Exception:
         logger.exception(
             "graph_call_failed",
@@ -74,7 +84,21 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
             )
         return ChatResponse(reply=FALLBACK_REPLY)
 
-    meta = reply_message.response_metadata or {}
+    pending_interrupts = result.get("__interrupt__")
+    if pending_interrupts:
+        # Paused on a fresh clarification: no text reply was produced, the question/options
+        # live in the interrupt's value. The carrier message is the tool-call AIMessage that
+        # requested request_clarification - it still has real LLM usage/cost metadata.
+        question_data = pending_interrupts[0].value
+        carrier_message: AIMessage = result["messages"][-1]
+        reply_text = question_data["question"]
+        options = [ClarificationOption(**o) for o in question_data["options"]]
+    else:
+        carrier_message = result["messages"][-1]
+        reply_text = carrier_message.content
+        options = None
+
+    meta = carrier_message.response_metadata or {}
     logger.info(
         "graph_call_end",
         extra={
@@ -88,14 +112,13 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     )
 
     with get_session() as session:
-        persist_turn_result(session, ctx, request_id, reply_message)
+        if pending_interrupts:
+            persist_turn_clarification(session, ctx, request_id, carrier_message, reply_text)
+        else:
+            persist_turn_result(session, ctx, request_id, carrier_message)
 
     logger.info(
         "message_sent",
         extra={"event": "message_sent", "request_id": request_id, "channel": request.channel},
     )
-    clarification_data = meta.get("clarification")
-    options = (
-        [ClarificationOption(**o) for o in clarification_data["options"]] if clarification_data else None
-    )
-    return ChatResponse(reply=reply_message.content, options=options)
+    return ChatResponse(reply=reply_text, options=options)

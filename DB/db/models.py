@@ -39,7 +39,6 @@ class Conversation(Base):
     id: Mapped[str] = mapped_column(primary_key=True, default=_uuid)
     channel: Mapped[str] = mapped_column()
     external_id: Mapped[str] = mapped_column()
-    pending_clarification: Mapped[dict | None] = mapped_column(JSONB, default=None)
     created_at: Mapped[datetime.datetime] = mapped_column(server_default=func.now())
 
     messages: Mapped[list["Message"]] = relationship(back_populates="conversation")

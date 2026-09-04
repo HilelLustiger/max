@@ -1,12 +1,10 @@
 import pytest
 from db.conversation import (
     add_message,
-    clear_pending_clarification,
     create_conversation,
     get_conversation,
     record_event,
     record_llm_metrics,
-    set_pending_clarification,
 )
 from db.session import get_session
 
@@ -23,32 +21,6 @@ def test_create_then_get_conversation_round_trips(clean_db):
         created = create_conversation(session, "test", "user-1")
         found = get_conversation(session, "test", "user-1")
         assert found.id == created.id
-
-
-def test_set_and_clear_pending_clarification(clean_db):
-    with get_session() as session:
-        conversation = create_conversation(session, "test", "user-1")
-        data = {
-            "tool": "create_task",
-            "known_args": {"title": "Buy milk"},
-            "field": "due_date",
-            "question": "מתי היעד?",
-            "options": [{"label": "היום", "value": "2026-08-29"}],
-        }
-
-        set_pending_clarification(session, conversation.id, data)
-        found = get_conversation(session, "test", "user-1")
-        assert found.pending_clarification == data
-
-        clear_pending_clarification(session, conversation.id)
-        found = get_conversation(session, "test", "user-1")
-        assert found.pending_clarification is None
-
-
-def test_new_conversation_has_no_pending_clarification(clean_db):
-    with get_session() as session:
-        conversation = create_conversation(session, "test", "user-1")
-        assert conversation.pending_clarification is None
 
 
 def test_record_llm_metrics_and_event(clean_db):

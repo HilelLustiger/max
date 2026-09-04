@@ -1,12 +1,12 @@
 import datetime
 
-from langchain_core.messages import AIMessage, ToolMessage, trim_messages
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, trim_messages
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
-from langgraph.types import Command
+from langgraph.types import Command, interrupt
 
 from app.config import settings
 from app.graph.state import AgentState
@@ -58,35 +58,6 @@ def _process_tool_result(request: ToolCallRequest, execute) -> ToolMessage | Com
     return result
 
 
-def _prepare_turn_node(state: AgentState) -> AgentState:
-    """Decide whether the latest message resolves a pending clarification. If it matches one
-    of the stored options by value, stash the completed tool call in `resume` for the
-    resume_tool node to execute - this is the only place that decision gets made."""
-    pending = state.get("pending_clarification")
-    if not pending:
-        return {}
-    last_text = state["messages"][-1].content
-    matched = next((o for o in pending["options"] if o["value"] == last_text), None)
-    if matched is None:
-        return {}
-    final_args = {**pending["known_args"], pending["field"]: matched["value"] or None}
-    return {"resume": {"tool": pending["tool"], "args": final_args}}
-
-
-def _route_after_prepare(state: AgentState) -> str:
-    return "resume_tool" if state.get("resume") else "call_model"
-
-
-def _resume_tool_node(tool_registry: dict[str, BaseTool]):
-    def resume_tool(state: AgentState) -> AgentState:
-        resume = state["resume"]
-        tool_result = tool_registry[resume["tool"]].invoke(resume["args"])
-        reply = AIMessage(content=tool_result, response_metadata={"resumed": True})
-        return {"messages": [reply]}
-
-    return resume_tool
-
-
 def _route_after_model(state: AgentState) -> str:
     last_message = state["messages"][-1]
     tool_calls = getattr(last_message, "tool_calls", None) or []
@@ -97,25 +68,40 @@ def _route_after_model(state: AgentState) -> str:
     return "__end__"
 
 
-def _clarification_node(state: AgentState) -> AgentState:
+def _clarification_node(tool_registry: dict[str, BaseTool]):
+    """Ask via interrupt() - pausing the graph and persisting the pause in the checkpoint,
+    not in any state field of ours (see ADR-0008). Everything before the interrupt() call
+    re-runs on every resume, so it must stay a pure read of state - no side effects."""
+
+    def clarification_node(state: AgentState) -> AgentState:
+        last_message = state["messages"][-1]
+        call = next(c for c in last_message.tool_calls if c["name"] == CLARIFICATION_TOOL_NAME)
+        args = call["args"]
+
+        answer = interrupt({"question": args["question"], "options": args["options"]})
+
+        # request_clarification's tool_use is never actually executed - Anthropic still
+        # requires a tool_result immediately after it, so synthesize one here regardless
+        # of whether the answer matched an option.
+        tool_message = ToolMessage(content=str(answer), tool_call_id=call["id"])
+
+        matched = next((o for o in args["options"] if o["value"] == answer), None)
+        if matched is None:
+            return {"messages": [tool_message, HumanMessage(content=answer)]}
+
+        final_args = {**args["known_args"], args["field"]: matched["value"] or None}
+        tool_result = tool_registry[args["tool"]].invoke(final_args)
+        reply = AIMessage(content=tool_result, response_metadata={"resumed": True})
+        return {"messages": [tool_message, reply]}
+
+    return clarification_node
+
+
+def _route_after_clarification(state: AgentState) -> str:
     last_message = state["messages"][-1]
-    call = next(c for c in last_message.tool_calls if c["name"] == CLARIFICATION_TOOL_NAME)
-    args = call["args"]
-    reply = AIMessage(
-        content=args["question"],
-        usage_metadata=last_message.usage_metadata,
-        response_metadata={
-            **last_message.response_metadata,
-            "clarification": {
-                "tool": args["tool"],
-                "known_args": args["known_args"],
-                "field": args["field"],
-                "question": args["question"],
-                "options": args["options"],
-            },
-        },
-    )
-    return {"messages": [reply]}
+    if isinstance(last_message, AIMessage) and last_message.response_metadata.get("resumed"):
+        return "__end__"
+    return "call_model"
 
 
 def _build_call_model(provider: LLMProvider, tools: list[BaseTool]):
@@ -163,30 +149,24 @@ def build_graph(
     tools = tools or []
     graph = StateGraph(AgentState)
     graph.add_node("call_model", _build_call_model(provider, tools))
+    graph.add_edge(START, "call_model")
 
     if tools:
         tool_registry = {t.name: t for t in tools}
-        graph.add_node("prepare_turn", _prepare_turn_node)
-        graph.add_node("resume_tool", _resume_tool_node(tool_registry))
-        graph.add_edge(START, "prepare_turn")
-        graph.add_conditional_edges(
-            "prepare_turn",
-            _route_after_prepare,
-            {"resume_tool": "resume_tool", "call_model": "call_model"},
-        )
-        graph.add_edge("resume_tool", END)
-
         graph.add_node("tools", ToolNode(tools, wrap_tool_call=_process_tool_result))
-        graph.add_node("clarification", _clarification_node)
+        graph.add_node("clarification", _clarification_node(tool_registry))
         graph.add_conditional_edges(
             "call_model",
             _route_after_model,
             {"tools": "tools", "clarification": "clarification", "__end__": END},
         )
         graph.add_edge("tools", "call_model")
-        graph.add_edge("clarification", END)
+        graph.add_conditional_edges(
+            "clarification",
+            _route_after_clarification,
+            {"call_model": "call_model", "__end__": END},
+        )
     else:
-        graph.add_edge(START, "call_model")
         graph.add_edge("call_model", END)
 
     return graph.compile(checkpointer=checkpointer)
