@@ -20,7 +20,7 @@ def clean_db():
         session.execute(
             text(
                 "TRUNCATE events, llm_metrics, messages, conversations, "
-                "habit_logs, habits, tasks, goals CASCADE"
+                "habit_logs, habits, tasks, goals, digest_logs, topics CASCADE"
             )
         )
     yield
