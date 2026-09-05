@@ -75,6 +75,7 @@ async function createTestBot() {
   const sentMessages: string[] = [];
   const sentKeyboards: unknown[] = [];
   const answeredCallbacks: string[] = [];
+  const reactions: unknown[] = [];
 
   bot.api.config.use((_prev, method, payload) => {
     if (method === "sendMessage" && "text" in payload) {
@@ -84,11 +85,14 @@ async function createTestBot() {
     if (method === "answerCallbackQuery") {
       answeredCallbacks.push((payload as { callback_query_id: string }).callback_query_id);
     }
+    if (method === "setMessageReaction") {
+      reactions.push((payload as { reaction?: unknown }).reaction);
+    }
     return Promise.resolve({ ok: true, result: true } as never);
   });
 
   await bot.init();
-  return { bot, sentMessages, sentKeyboards, answeredCallbacks };
+  return { bot, sentMessages, sentKeyboards, answeredCallbacks, reactions };
 }
 
 test("message:text success path replies with the agent's response", async () => {
@@ -98,6 +102,46 @@ test("message:text success path replies with the agent's response", async () => 
 
   try {
     const { bot, sentMessages } = await createTestBot();
+    await bot.handleUpdate(textUpdate("hello"));
+    assert.deepEqual(sentMessages, ["hi there"]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("message:text reacts to the incoming message before replying", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ reply: "hi there" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const { bot, reactions } = await createTestBot();
+    await bot.handleUpdate(textUpdate("hello"));
+    assert.deepEqual(reactions, [[{ type: "emoji", emoji: "👀" }]]);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("message:text still replies even if reacting to the message fails", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ reply: "hi there" }), { status: 200 })) as typeof fetch;
+
+  try {
+    const bot = createBot("test-token", { botInfo: BOT_INFO });
+    const sentMessages: string[] = [];
+    bot.api.config.use((_prev, method, payload) => {
+      if (method === "setMessageReaction") {
+        return Promise.reject(new Error("reaction not allowed"));
+      }
+      if (method === "sendMessage" && "text" in payload) {
+        sentMessages.push(payload.text as string);
+      }
+      return Promise.resolve({ ok: true, result: true } as never);
+    });
+    await bot.init();
+
     await bot.handleUpdate(textUpdate("hello"));
     assert.deepEqual(sentMessages, ["hi there"]);
   } finally {

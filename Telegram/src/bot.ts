@@ -44,6 +44,14 @@ export function createBot(token: string = config.telegramBotToken, options?: Bot
     const requestId = randomUUID();
     logger.info("message_received", { request_id: requestId, chat_id: chatId });
 
+    // Lets the user know we've seen their message right away, before the (possibly slow)
+    // agent call below - not fatal to the reply if it fails for any reason.
+    try {
+      await ctx.react("👀");
+    } catch (error) {
+      logger.error("reaction_failed", { request_id: requestId, chat_id: chatId, error: String(error) });
+    }
+
     try {
       await replyWithAgentResponse(ctx, chatId, ctx.message.text, requestId);
       logger.info("reply_sent", { request_id: requestId, chat_id: chatId });
