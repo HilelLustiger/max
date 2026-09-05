@@ -88,12 +88,27 @@ def _fetch_one(source: str) -> list[Entry]:
 
 
 def fetch_entries(sources: list[str]) -> list[Entry]:
-    """Fetch every source concurrently; a slow or failing source is skipped, not fatal."""
+    """Fetch every source concurrently; a slow or failing source is skipped, not fatal.
+
+    Deduped by link - the same article can legitimately appear in more than one of a
+    topic's feeds (e.g. a general feed and a more specific one from the same publisher),
+    and DigestLog's unique constraint on (topic_id, article_url) means recording the same
+    link twice in one batch would otherwise crash the whole digest.
+    """
     if not sources:
         return []
     with ThreadPoolExecutor(max_workers=len(sources)) as pool:
         results = pool.map(_fetch_one, sources)
-    return [entry for entries in results for entry in entries]
+
+    seen_links: set[str] = set()
+    deduped = []
+    for entries in results:
+        for entry in entries:
+            if entry.link in seen_links:
+                continue
+            seen_links.add(entry.link)
+            deduped.append(entry)
+    return deduped
 
 
 def find_new_entries(session: Session, topic: Topic) -> list[Entry]:

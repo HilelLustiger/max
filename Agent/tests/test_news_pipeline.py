@@ -23,6 +23,17 @@ SAMPLE_FEED = """<?xml version="1.0"?>
 
 EMPTY_FEED = """<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>"""
 
+# Same article as SAMPLE_FEED's first item - simulates two feeds from the same publisher
+# (e.g. a general feed and a topic-specific one) both carrying the same story.
+OVERLAPPING_FEED = """<?xml version="1.0"?>
+<rss version="2.0"><channel>
+<item>
+  <title>Article One</title>
+  <link>https://example.com/1</link>
+  <description>Summary one, from a different feed</description>
+</item>
+</channel></rss>"""
+
 # Nothing should be listening here - exercises the "a source fails" path without a real
 # network dependency or waiting out the full fetch timeout.
 UNREACHABLE_SOURCE = "http://localhost:1/does-not-exist"
@@ -48,6 +59,14 @@ def test_fetch_entries_skips_a_failing_source_without_failing_others():
     entries = fetch_entries([SAMPLE_FEED, UNREACHABLE_SOURCE])
 
     assert [e.title for e in entries] == ["Article One", "Article Two"]
+
+
+def test_fetch_entries_dedups_the_same_article_across_sources():
+    entries = fetch_entries([SAMPLE_FEED, OVERLAPPING_FEED])
+
+    links = [e.link for e in entries]
+    assert links.count("https://example.com/1") == 1
+    assert len(entries) == 2
 
 
 def test_find_new_entries_excludes_already_delivered(clean_db):
