@@ -1,8 +1,11 @@
 import datetime
+import logging
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 import feedparser
+import httpx
 from db.models import Topic
 from db.topics import filter_undelivered, record_delivered
 from langchain_core.messages import HumanMessage
@@ -10,7 +13,10 @@ from sqlalchemy.orm import Session
 
 from app.llm.contract import LLMProvider
 
+logger = logging.getLogger(__name__)
+
 _ISRAELI_DOMAIN_SUFFIXES = (".co.il", ".org.il", ".net.il")
+_FETCH_TIMEOUT_SECONDS = 5
 
 SYSTEM_PROMPT = (
     "You curate a short news digest for one topic, for a friend catching up on their feed - "
@@ -50,49 +56,67 @@ def _is_israeli(link: str) -> bool:
     return domain.endswith(_ISRAELI_DOMAIN_SUFFIXES)
 
 
-def fetch_entries(sources: list[str]) -> list[Entry]:
+def _fetch_one(source: str) -> list[Entry]:
+    try:
+        if source.lstrip().startswith("<"):
+            raw = source
+        else:
+            response = httpx.get(source, timeout=_FETCH_TIMEOUT_SECONDS, follow_redirects=True)
+            response.raise_for_status()
+            raw = response.content
+    except Exception:
+        logger.warning("news_source_fetch_failed", extra={"source": source}, exc_info=True)
+        return []
+
+    parsed = feedparser.parse(raw)
     entries = []
-    for source in sources:
-        parsed = feedparser.parse(source)
-        for item in parsed.entries:
-            published_at = None
-            if getattr(item, "published_parsed", None):
-                published_at = datetime.datetime(*item.published_parsed[:6], tzinfo=datetime.UTC)
-            link = item.get("link", "")
-            entries.append(
-                Entry(
-                    title=item.get("title", ""),
-                    link=link,
-                    summary=item.get("summary", ""),
-                    published_at=published_at,
-                    is_israeli=_is_israeli(link),
-                )
+    for item in parsed.entries:
+        published_at = None
+        if getattr(item, "published_parsed", None):
+            published_at = datetime.datetime(*item.published_parsed[:6], tzinfo=datetime.UTC)
+        link = item.get("link", "")
+        entries.append(
+            Entry(
+                title=item.get("title", ""),
+                link=link,
+                summary=item.get("summary", ""),
+                published_at=published_at,
+                is_israeli=_is_israeli(link),
             )
+        )
     return entries
 
 
-def build_digest(session: Session, topic: Topic, provider: LLMProvider) -> str | None:
-    """Fetch, dedup against DigestLog, and summarize into a digest.
+def fetch_entries(sources: list[str]) -> list[Entry]:
+    """Fetch every source concurrently; a slow or failing source is skipped, not fatal."""
+    if not sources:
+        return []
+    with ThreadPoolExecutor(max_workers=len(sources)) as pool:
+        results = pool.map(_fetch_one, sources)
+    return [entry for entries in results for entry in entries]
 
-    Returns None when there are no new (undelivered) articles - a real LLM call isn't
-    worth making just to say "nothing new".
-    """
+
+def find_new_entries(session: Session, topic: Topic) -> list[Entry]:
+    """Fetch and dedup against DigestLog - no LLM call, this is the fast/cheap half."""
     entries = [e for e in fetch_entries(topic.sources) if e.link]
     undelivered_links = set(filter_undelivered(session, topic.id, [e.link for e in entries]))
-    new_entries = [e for e in entries if e.link in undelivered_links]
-    if not new_entries:
-        return None
+    return [e for e in entries if e.link in undelivered_links]
 
+
+def summarize_entries(
+    session: Session, topic: Topic, entries: list[Entry], provider: LLMProvider
+) -> str:
+    """Summarize already-fetched, already-deduped entries and record them as delivered."""
     listing = "\n\n".join(
         f"Title: {entry.title}\nSummary: {entry.summary}\n"
         f"Origin: {'Israeli' if entry.is_israeli else 'default'}\nLink: {entry.link}"
-        for entry in new_entries
+        for entry in entries
     )
     prompt = (
         f"Topic: {topic.name}\nKeywords: {', '.join(topic.keywords)}\n\n"
-        f"Candidate articles ({len(new_entries)} total):\n\n{listing}"
+        f"Candidate articles ({len(entries)} total):\n\n{listing}"
     )
     response = provider.generate([HumanMessage(content=prompt)], system=SYSTEM_PROMPT)
 
-    record_delivered(session, topic.id, [(entry.link, entry.title) for entry in new_entries])
+    record_delivered(session, topic.id, [(entry.link, entry.title) for entry in entries])
     return response.text
