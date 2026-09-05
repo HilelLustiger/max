@@ -1,3 +1,6 @@
+import datetime
+
+from db.models import Topic
 from db.session import get_session
 from db.topics import create_topic as db_create_topic
 from db.topics import get_topic_by_name
@@ -5,9 +8,29 @@ from db.topics import list_topics as db_list_topics
 from langchain_core.tools import tool
 
 from app.llm.factory import get_provider
-from app.news.pipeline import build_digest
+from app.news.pipeline import Entry, find_new_entries, summarize_entries
 
 _provider = get_provider()
+
+# In-process cache bridging the two tool calls below - single-replica deployment only (see
+# #43's plan: splitting fetch from summarize keeps each tool call fast and independently
+# checkpointed, but the summarize step needs what the fetch step already found without asking
+# the LLM to transcribe raw articles through its own tool-call arguments).
+_CACHE_TTL = datetime.timedelta(minutes=5)
+_fetched_entries: dict[str, tuple[datetime.datetime, Topic, list[Entry]]] = {}
+
+
+def _resolve_topics(session, topic: str | None) -> list[Topic] | str:
+    """Returns the resolved topic list, or a Hebrew error string if resolution failed."""
+    if topic is not None:
+        found = get_topic_by_name(session, topic)
+        if found is None:
+            return f"לא נמצא נושא בשם '{topic}'."
+        return [found]
+    topics = db_list_topics(session, active=True)
+    if not topics:
+        return "אין נושאים פעילים."
+    return topics
 
 
 @tool
@@ -53,36 +76,67 @@ def list_topics() -> str:
 
 
 @tool
-def get_latest_news(topic: str | None = None) -> str:
-    """Get the latest news digest for a topic, or across all active topics if omitted.
+def fetch_news_entries(topic: str | None = None) -> str:
+    """Check a topic (or all active topics, if omitted) for new articles since the last digest.
 
     topic must match an existing topic's name exactly - call list_topics first if unsure.
-    Only returns genuinely new articles since the last digest for that topic; if there's
-    nothing new, says so instead of repeating old news.
+    This only checks and reports how many new articles were found - it does NOT summarize
+    them. If this reports new articles for a topic, call summarize_news with that same topic
+    next to get the actual digest; never try to write the digest yourself from this result.
     """
     with get_session() as session:
-        if topic is not None:
-            found = get_topic_by_name(session, topic)
-            if found is None:
-                return f"לא נמצא נושא בשם '{topic}'."
-            topics = [found]
-        else:
-            topics = db_list_topics(session, active=True)
+        topics = _resolve_topics(session, topic)
+        if isinstance(topics, str):
+            return topics
 
-        if not topics:
-            return "אין נושאים פעילים."
-
-        digests = []
+        reports = []
         for t in topics:
             if not t.sources:
                 continue
-            digest = build_digest(session, t, _provider)
-            if digest:
-                digests.append(f"## {t.name}\n{digest}")
+            entries = find_new_entries(session, t)
+            if entries:
+                _fetched_entries[t.id] = (datetime.datetime.now(datetime.UTC) + _CACHE_TTL, t, entries)
+                reports.append(f"נמצאו {len(entries)} כתבות חדשות בנושא {t.name}.")
+            else:
+                reports.append(f"אין כתבות חדשות בנושא {t.name}.")
 
-    if not digests:
-        return "אין חדשות חדשות כרגע."
+    if not reports:
+        return "אין נושאים פעילים עם מקורות מוגדרים."
+    return "\n".join(reports)
+
+
+@tool
+def summarize_news(topic: str | None = None) -> str:
+    """Summarize the new articles a prior fetch_news_entries call found, for a topic (or all
+    topics that had new articles, if omitted).
+
+    Only works right after fetch_news_entries reported new articles - if nothing is cached for
+    the requested topic (or fetch_news_entries wasn't called yet), this says so; call
+    fetch_news_entries first in that case.
+    """
+    now = datetime.datetime.now(datetime.UTC)
+    if topic is not None:
+        with get_session() as session:
+            found = get_topic_by_name(session, topic)
+        if found is None:
+            return f"לא נמצא נושא בשם '{topic}'."
+        cached = _fetched_entries.get(found.id)
+        if cached is None or cached[0] < now:
+            return f"אין כתבות ממתינות לסיכום בנושא {topic} - יש להריץ קודם fetch_news_entries."
+        topic_ids = [found.id]
+    else:
+        topic_ids = [tid for tid, (expires_at, _, _) in _fetched_entries.items() if expires_at >= now]
+        if not topic_ids:
+            return "אין כתבות ממתינות לסיכום - יש להריץ קודם fetch_news_entries."
+
+    with get_session() as session:
+        digests = []
+        for topic_id in topic_ids:
+            _, t, entries = _fetched_entries.pop(topic_id)
+            digest = summarize_entries(session, t, entries, _provider)
+            digests.append(f"## {t.name}\n{digest}")
+
     return "\n\n".join(digests)
 
 
-NEWS_TOOLS = [create_topic, list_topics, get_latest_news]
+NEWS_TOOLS = [create_topic, list_topics, fetch_news_entries, summarize_news]

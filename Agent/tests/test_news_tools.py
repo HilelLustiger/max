@@ -27,6 +27,14 @@ def _tool_reply(name: str, args: dict) -> str:
     return result["messages"][-1].content
 
 
+def _call_tool_directly(name: str, args: dict) -> str:
+    """Bypass the graph for a raw tool result, needed when chaining fetch -> summarize since
+    each call above builds a fresh graph/thread and the two tools share process-level cache
+    state, not per-thread state."""
+    tool = next(t for t in NEWS_TOOLS if t.name == name)
+    return tool.invoke(args)
+
+
 def test_create_topic_tool_persists_topic(clean_db):
     reply = _tool_reply(
         "create_topic", {"name": "AI", "keywords": ["ai"], "sources": [SAMPLE_FEED]}
@@ -54,28 +62,52 @@ def test_list_topics_tool_reports_no_topics(clean_db):
     assert "אין נושאים פעילים" in reply
 
 
-def test_get_latest_news_reports_missing_topic(clean_db):
-    reply = _tool_reply("get_latest_news", {"topic": "missing"})
+def test_fetch_news_entries_reports_missing_topic(clean_db):
+    reply = _call_tool_directly("fetch_news_entries", {"topic": "missing"})
     assert "לא נמצא נושא" in reply
 
 
-def test_get_latest_news_reports_no_active_topics(clean_db):
-    reply = _tool_reply("get_latest_news", {})
+def test_fetch_news_entries_reports_no_active_topics(clean_db):
+    reply = _call_tool_directly("fetch_news_entries", {})
     assert "אין נושאים פעילים" in reply
 
 
-def test_get_latest_news_returns_digest_for_new_articles(clean_db):
+def test_fetch_news_entries_reports_new_articles(clean_db):
     with get_session() as session:
         db_create_topic(session, "AI", sources=[SAMPLE_FEED])
 
-    reply = _tool_reply("get_latest_news", {"topic": "AI"})
+    reply = _call_tool_directly("fetch_news_entries", {"topic": "AI"})
+    assert "נמצאו" in reply
     assert "AI" in reply
 
 
-def test_get_latest_news_reports_nothing_new(clean_db):
+def test_fetch_news_entries_reports_nothing_new(clean_db):
     with get_session() as session:
         topic = db_create_topic(session, "AI", sources=[SAMPLE_FEED])
         record_delivered(session, topic.id, [("https://example.com/1", "Article One")])
 
-    reply = _tool_reply("get_latest_news", {"topic": "AI"})
-    assert "אין חדשות חדשות" in reply
+    reply = _call_tool_directly("fetch_news_entries", {"topic": "AI"})
+    assert "אין כתבות חדשות" in reply
+
+
+def test_summarize_news_without_prior_fetch_reports_nothing_cached(clean_db):
+    with get_session() as session:
+        db_create_topic(session, "AI", sources=[SAMPLE_FEED])
+
+    reply = _call_tool_directly("summarize_news", {"topic": "AI"})
+    assert "יש להריץ קודם fetch_news_entries" in reply
+
+
+def test_summarize_news_after_fetch_returns_digest(clean_db):
+    with get_session() as session:
+        db_create_topic(session, "AI", sources=[SAMPLE_FEED])
+
+    fetch_reply = _call_tool_directly("fetch_news_entries", {"topic": "AI"})
+    assert "נמצאו" in fetch_reply
+
+    summarize_reply = _call_tool_directly("summarize_news", {"topic": "AI"})
+    assert "AI" in summarize_reply
+
+    # Cache is consumed - a second summarize without a new fetch has nothing left.
+    second_reply = _call_tool_directly("summarize_news", {"topic": "AI"})
+    assert "יש להריץ קודם fetch_news_entries" in second_reply

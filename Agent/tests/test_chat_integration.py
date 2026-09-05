@@ -6,6 +6,7 @@ from app.main import app
 from app.tools.tasks import TASK_TOOLS
 from db.session import get_session
 from fastapi.testclient import TestClient
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from sqlalchemy import text
 
@@ -160,6 +161,47 @@ def test_chat_falls_through_to_llm_when_reply_does_not_match_pending_options(cle
 
     conversation_id = _conversation_id("test", "user-7")
     assert not graph.get_state({"configurable": {"thread_id": conversation_id}}).interrupts
+
+
+def test_chat_heals_a_conversation_stuck_mid_tool_call(clean_db, monkeypatch):
+    """Simulates #43: a previous turn's tool call never got its ToolMessage saved (e.g. the
+    process was killed mid-tool-call), leaving a dangling tool_use with no tool_result -
+    exactly what a real Anthropic call rejects. The next message should heal and succeed
+    instead of repeating that failure forever."""
+    provider = FakeProvider()
+    graph = build_graph(provider, tools=TASK_TOOLS, checkpointer=InMemorySaver())
+    monkeypatch.setattr(chat_module, "_graph", graph)
+
+    client.post("/chat", json={"channel": "test", "external_id": "user-stuck", "text": "hello"})
+    conversation_id = _conversation_id("test", "user-stuck")
+    config = {"configurable": {"thread_id": conversation_id}}
+
+    stuck_ai_message = AIMessage(
+        content="",
+        tool_calls=[{"name": "list_tasks", "args": {}, "id": "dangling-call-1"}],
+    )
+    graph.update_state(
+        config,
+        {"messages": [HumanMessage(content="what are my tasks"), stuck_ai_message]},
+        as_node="call_model",
+    )
+    stuck_state = graph.get_state(config)
+    assert stuck_state.next  # sanity: genuinely stuck before healing
+    assert not stuck_state.interrupts
+
+    response = client.post(
+        "/chat", json={"channel": "test", "external_id": "user-stuck", "text": "still there?"}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"reply": "fake reply to: still there?"}
+
+    healed_messages = graph.get_state(config).values["messages"]
+    healed_tool_message = next(
+        m
+        for m in healed_messages
+        if isinstance(m, ToolMessage) and m.tool_call_id == "dangling-call-1"
+    )
+    assert healed_tool_message.content
 
 
 def test_chat_reuses_conversation_history(clean_db):

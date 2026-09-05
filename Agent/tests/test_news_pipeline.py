@@ -1,6 +1,6 @@
 import pytest
 from app.llm.fake_provider import FakeProvider
-from app.news.pipeline import build_digest, fetch_entries
+from app.news.pipeline import fetch_entries, find_new_entries, summarize_entries
 from db.session import get_session
 from db.topics import create_topic, filter_undelivered, record_delivered
 
@@ -23,6 +23,10 @@ SAMPLE_FEED = """<?xml version="1.0"?>
 
 EMPTY_FEED = """<?xml version="1.0"?><rss version="2.0"><channel></channel></rss>"""
 
+# Nothing should be listening here - exercises the "a source fails" path without a real
+# network dependency or waiting out the full fetch timeout.
+UNREACHABLE_SOURCE = "http://localhost:1/does-not-exist"
+
 
 def test_fetch_entries_parses_feed_items():
     entries = fetch_entries([SAMPLE_FEED])
@@ -40,34 +44,36 @@ def test_fetch_entries_merges_multiple_sources():
     assert len(entries) == 2
 
 
-def test_build_digest_returns_none_when_no_new_entries(clean_db):
+def test_fetch_entries_skips_a_failing_source_without_failing_others():
+    entries = fetch_entries([SAMPLE_FEED, UNREACHABLE_SOURCE])
+
+    assert [e.title for e in entries] == ["Article One", "Article Two"]
+
+
+def test_find_new_entries_excludes_already_delivered(clean_db):
     with get_session() as session:
         topic = create_topic(session, "AI", sources=[SAMPLE_FEED])
-        record_delivered(
-            session,
-            topic.id,
-            [("https://example.com/1", "Article One"), ("https://example.com/2", "Article Two")],
-        )
-
-        provider = FakeProvider()
-        result = build_digest(session, topic, provider)
-
-        assert result is None
-        assert provider.call_count == 0
-
-
-def test_build_digest_summarizes_only_new_entries_and_records_them(clean_db):
-    with get_session() as session:
-        topic = create_topic(session, "AI", keywords=["ai"], sources=[SAMPLE_FEED])
         record_delivered(session, topic.id, [("https://example.com/1", "Article One")])
 
+        new_entries = find_new_entries(session, topic)
+
+        assert [e.title for e in new_entries] == ["Article Two"]
+
+
+def test_summarize_entries_calls_provider_and_records_delivered(clean_db):
+    with get_session() as session:
+        topic = create_topic(session, "AI", keywords=["ai"], sources=[SAMPLE_FEED])
+        new_entries = find_new_entries(session, topic)
+
         provider = FakeProvider()
-        result = build_digest(session, topic, provider)
+        result = summarize_entries(session, topic, new_entries, provider)
 
         assert provider.call_count == 1
+        assert "Article One" in provider.last_messages[-1].content
         assert "Article Two" in provider.last_messages[-1].content
-        assert "Article One" not in provider.last_messages[-1].content
         assert result.startswith("fake reply to:")
 
-        remaining = filter_undelivered(session, topic.id, ["https://example.com/2"])
+        remaining = filter_undelivered(
+            session, topic.id, ["https://example.com/1", "https://example.com/2"]
+        )
         assert remaining == []
