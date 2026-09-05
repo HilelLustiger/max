@@ -11,7 +11,7 @@ from db.topics import filter_undelivered, record_delivered
 from langchain_core.messages import HumanMessage
 from sqlalchemy.orm import Session
 
-from app.llm.contract import LLMProvider
+from app.llm.contract import LLMProvider, LLMResponse
 
 logger = logging.getLogger(__name__)
 
@@ -120,8 +120,13 @@ def find_new_entries(session: Session, topic: Topic) -> list[Entry]:
 
 def summarize_entries(
     session: Session, topic: Topic, entries: list[Entry], provider: LLMProvider
-) -> str:
-    """Summarize already-fetched, already-deduped entries and record them as delivered."""
+) -> LLMResponse:
+    """Summarize already-fetched, already-deduped entries and record them as delivered.
+
+    Returns the full LLMResponse (not just its text) so callers can log real usage for this
+    call - it happens inside a tool, off the graph's own conversation turn, so it wouldn't
+    otherwise show up in any of the usual per-turn metrics.
+    """
     listing = "\n\n".join(
         f"Title: {entry.title}\nSummary: {entry.summary}\n"
         f"Origin: {'Israeli' if entry.is_israeli else 'default'}\nLink: {entry.link}"
@@ -134,4 +139,4 @@ def summarize_entries(
     response = provider.generate([HumanMessage(content=prompt)], system=SYSTEM_PROMPT)
 
     record_delivered(session, topic.id, [(entry.link, entry.title) for entry in entries])
-    return response.text
+    return response

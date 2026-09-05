@@ -85,12 +85,12 @@ def test_summarize_entries_calls_provider_and_records_delivered(clean_db):
         new_entries = find_new_entries(session, topic)
 
         provider = FakeProvider()
-        result = summarize_entries(session, topic, new_entries, provider)
+        response = summarize_entries(session, topic, new_entries, provider)
 
         assert provider.call_count == 1
         assert "Article One" in provider.last_messages[-1].content
         assert "Article Two" in provider.last_messages[-1].content
-        assert result.startswith("fake reply to:")
+        assert response.text.startswith("fake reply to:")
 
         remaining = filter_undelivered(
             session, topic.id, ["https://example.com/1", "https://example.com/2"]

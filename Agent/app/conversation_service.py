@@ -41,9 +41,13 @@ def load_turn(session: Session, channel: str, external_id: str, text: str, reque
     )
 
 
-def _record_llm_metrics_for_message(
-    session: Session, ctx: TurnContext, request_id: str, message: AIMessage
+def record_llm_metrics_for_message(
+    session: Session, message_id: str, request_id: str | None, message: AIMessage
 ) -> None:
+    """Turns an AIMessage's usage/response metadata into an llm_metrics row. Shared beyond
+    this module by app/tools/news.py, whose summarize_news tool makes its own LLM call
+    outside the graph (so it wouldn't otherwise show up in any per-turn metrics) - it wraps
+    that call's LLMResponse into this same AIMessage shape first."""
     meta = message.response_metadata or {}
     usage = message.usage_metadata or {}
     provider_name = meta.get("provider", "unknown")
@@ -55,7 +59,7 @@ def _record_llm_metrics_for_message(
 
     record_llm_metrics(
         session,
-        message_id=ctx.user_message_id,
+        message_id=message_id,
         request_id=request_id,
         provider=provider_name,
         model=model_name,
@@ -92,7 +96,7 @@ def persist_turn_result(
         )
         return
 
-    _record_llm_metrics_for_message(session, ctx, request_id, reply_message)
+    record_llm_metrics_for_message(session, ctx.user_message_id, request_id, reply_message)
     record_event(session, "message_sent", conversation_id=ctx.conversation_id, request_id=request_id)
 
 
@@ -103,7 +107,7 @@ def persist_turn_clarification(
     tool_call_message is the AIMessage that requested request_clarification - it still carries
     real LLM usage/cost metadata even though the graph never produced a text reply from it."""
     add_message(session, ctx.conversation_id, role="assistant", content=question)
-    _record_llm_metrics_for_message(session, ctx, request_id, tool_call_message)
+    record_llm_metrics_for_message(session, ctx.user_message_id, request_id, tool_call_message)
     record_event(
         session, "clarification_asked", conversation_id=ctx.conversation_id, request_id=request_id
     )

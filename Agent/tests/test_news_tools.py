@@ -2,11 +2,13 @@ import pytest
 from app.graph.build import build_graph
 from app.llm.fake_provider import FakeProvider
 from app.tools.news import NEWS_TOOLS
+from db.conversation import add_message, create_conversation
 from db.session import get_session
 from db.topics import create_topic as db_create_topic
 from db.topics import list_topics as db_list_topics
 from db.topics import record_delivered
 from langchain_core.messages import HumanMessage
+from sqlalchemy import text
 
 pytestmark = pytest.mark.integration
 
@@ -111,3 +113,40 @@ def test_summarize_news_after_fetch_returns_digest(clean_db):
     # Cache is consumed - a second summarize without a new fetch has nothing left.
     second_reply = _call_tool_directly("summarize_news", {"topic": "AI"})
     assert "יש להריץ קודם fetch_news_entries" in second_reply
+
+
+def test_summarize_news_records_llm_metrics_when_given_a_message_id(clean_db):
+    with get_session() as session:
+        db_create_topic(session, "AI", sources=[SAMPLE_FEED])
+        conversation = create_conversation(session, "test", "user-1")
+        message = add_message(session, conversation.id, role="user", content="news please")
+
+    tool = next(t for t in NEWS_TOOLS if t.name == "summarize_news")
+    fetch_tool = next(t for t in NEWS_TOOLS if t.name == "fetch_news_entries")
+    fetch_tool.invoke({"topic": "AI"})
+
+    config = {"configurable": {"message_id": message.id, "request_id": "req-1"}}
+    tool.invoke({"topic": "AI"}, config=config)
+
+    with get_session() as session:
+        row = session.execute(
+            text("SELECT request_id, provider, model FROM llm_metrics WHERE message_id = :mid"),
+            {"mid": message.id},
+        ).one()
+        assert row.request_id == "req-1"
+        assert row.provider == "fake"
+
+
+def test_summarize_news_skips_metrics_without_a_message_id(clean_db):
+    with get_session() as session:
+        db_create_topic(session, "AI", sources=[SAMPLE_FEED])
+
+    fetch_tool = next(t for t in NEWS_TOOLS if t.name == "fetch_news_entries")
+    fetch_tool.invoke({"topic": "AI"})
+
+    tool = next(t for t in NEWS_TOOLS if t.name == "summarize_news")
+    tool.invoke({"topic": "AI"})  # no config at all - shouldn't raise
+
+    with get_session() as session:
+        count = session.execute(text("SELECT count(*) FROM llm_metrics")).scalar_one()
+        assert count == 0

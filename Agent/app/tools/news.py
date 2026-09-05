@@ -5,8 +5,12 @@ from db.session import get_session
 from db.topics import create_topic as db_create_topic
 from db.topics import get_topic_by_name
 from db.topics import list_topics as db_list_topics
+from langchain_core.messages import AIMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 
+from app.conversation_service import record_llm_metrics_for_message
+from app.llm.contract import LLMResponse
 from app.llm.factory import get_provider
 from app.news.pipeline import Entry, find_new_entries, summarize_entries
 
@@ -18,6 +22,28 @@ _provider = get_provider()
 # the LLM to transcribe raw articles through its own tool-call arguments).
 _CACHE_TTL = datetime.timedelta(minutes=5)
 _fetched_entries: dict[str, tuple[datetime.datetime, Topic, list[Entry]]] = {}
+
+
+def response_into_AIMessage(response: LLMResponse) -> AIMessage:
+    """Wraps a direct LLMProvider.generate() result into the same AIMessage shape the graph
+    itself builds (see app/graph/build.py's call_model), so it can go through
+    conversation_service's one shared recorder for llm_metrics."""
+    return AIMessage(
+        content=response.text,
+        usage_metadata={
+            "input_tokens": response.input_tokens or 0,
+            "output_tokens": response.output_tokens or 0,
+            "total_tokens": (response.input_tokens or 0) + (response.output_tokens or 0),
+        },
+        response_metadata={
+            "provider": response.provider,
+            "model": response.model,
+            "latency_ms": response.latency_ms,
+            "cache_creation_input_tokens": response.cache_creation_input_tokens,
+            "cache_read_input_tokens": response.cache_read_input_tokens,
+            "finish_reason": response.finish_reason,
+        },
+    )
 
 
 def _resolve_topics(session, topic: str | None) -> list[Topic] | str:
@@ -106,7 +132,7 @@ def fetch_news_entries(topic: str | None = None) -> str:
 
 
 @tool
-def summarize_news(topic: str | None = None) -> str:
+def summarize_news(topic: str | None = None, config: RunnableConfig = None) -> str:
     """Summarize the new articles a prior fetch_news_entries call found, for a topic (or all
     topics that had new articles, if omitted).
 
@@ -131,10 +157,16 @@ def summarize_news(topic: str | None = None) -> str:
 
     with get_session() as session:
         digests = []
+        configurable = (config or {}).get("configurable", {})
+        message_id = configurable.get("message_id")
         for topic_id in topic_ids:
             _, t, entries = _fetched_entries.pop(topic_id)
-            digest = summarize_entries(session, t, entries, _provider)
-            digests.append(f"## {t.name}\n{digest}")
+            response = summarize_entries(session, t, entries, _provider)
+            if message_id is not None:
+                record_llm_metrics_for_message(
+                    session, message_id, configurable.get("request_id"), response_into_AIMessage(response)
+                )
+            digests.append(f"## {t.name}\n{response.text}")
 
     return "\n\n".join(digests)
 
