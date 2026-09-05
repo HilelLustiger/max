@@ -51,7 +51,16 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     with get_session() as session:
         ctx = load_turn(session, request.channel, request.external_id, request.text, request_id)
 
-    config = {"configurable": {"thread_id": ctx.conversation_id}}
+    # message_id/request_id ride along so a tool that makes its own separate LLM call (e.g.
+    # news digest summarization) can log real usage for it via the same config-injection path
+    # LangChain gives every tool - see app/tools/news.py's _record_summarize_metrics.
+    config = {
+        "configurable": {
+            "thread_id": ctx.conversation_id,
+            "message_id": ctx.user_message_id,
+            "request_id": request_id,
+        }
+    }
     # Whether this turn resumes a pending clarification is the checkpointer's call, via
     # interrupt() - not a column we track ourselves (see ADR-0008).
     state = _graph.get_state(config)
