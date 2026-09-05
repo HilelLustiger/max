@@ -1,4 +1,5 @@
 import datetime
+import logging
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, trim_messages
 from langchain_core.tools import BaseTool
@@ -6,12 +7,15 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.prebuilt.tool_node import ToolCallRequest
-from langgraph.types import Command, interrupt
+from langgraph.pregel.main import Pregel
+from langgraph.types import Command, RunnableConfig, StateSnapshot, interrupt
 
 from app.config import settings
 from app.graph.state import AgentState
 from app.llm.contract import LLMProvider
 from app.tools.clarification import CLARIFICATION_TOOL_NAME
+
+logger = logging.getLogger(__name__)
 
 
 def _build_system_prompt() -> str:
@@ -58,6 +62,37 @@ def _process_tool_result(request: ToolCallRequest, execute) -> ToolMessage | Com
         if content != result.content:
             result = result.model_copy(update={"content": content})
     return result
+
+
+def heal_incomplete_run(graph: Pregel, config: RunnableConfig, state: StateSnapshot) -> bool:
+    """Recover a thread left mid-step by a killed/crashed previous run (e.g. a slow tool call
+    that never got to save its ToolMessage - see #43). Anthropic rejects any history with a
+    tool_use block that has no tool_result immediately after it, so left alone this would
+    break every future message on the thread. Distinct from a clarification interrupt (also
+    leaves `next` non-empty, but with `interrupts` set) - only fires when nothing is actually
+    paused, i.e. the run was simply cut off. Returns whether it healed anything."""
+    if state.interrupts or not state.next:
+        return False
+
+    messages = state.values.get("messages", [])
+    last_ai = next((m for m in reversed(messages) if isinstance(m, AIMessage)), None)
+    if last_ai is None or not last_ai.tool_calls:
+        return False
+
+    answered_ids = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
+    pending = [call for call in last_ai.tool_calls if call["id"] not in answered_ids]
+    if not pending:
+        return False
+
+    healing_messages = [
+        ToolMessage(content="הפעולה לא הושלמה עקב תקלה טכנית.", tool_call_id=call["id"])
+        for call in pending
+    ]
+    # as_node="tools": this is standing in for what the tools node itself would have
+    # produced, so it should route onward exactly like a real one does (its static edge
+    # always goes to call_model) - not left to update_state's own node-inference guess.
+    graph.update_state(config, {"messages": healing_messages}, as_node="tools")
+    return True
 
 
 def _route_after_model(state: AgentState) -> str:

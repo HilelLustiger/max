@@ -13,7 +13,7 @@ from app.conversation_service import (
     persist_turn_failure,
     persist_turn_result,
 )
-from app.graph.build import build_graph
+from app.graph.build import build_graph, heal_incomplete_run
 from app.graph.checkpointer import build_checkpointer
 from app.llm.factory import get_provider
 from app.tools import ALL_TOOLS
@@ -54,7 +54,18 @@ def chat(request: ChatRequest, x_request_id: str | None = Header(default=None)) 
     config = {"configurable": {"thread_id": ctx.conversation_id}}
     # Whether this turn resumes a pending clarification is the checkpointer's call, via
     # interrupt() - not a column we track ourselves (see ADR-0008).
-    is_resuming = bool(_graph.get_state(config).interrupts)
+    state = _graph.get_state(config)
+    is_resuming = bool(state.interrupts)
+
+    if not is_resuming and heal_incomplete_run(_graph, config, state):
+        logger.warning(
+            "healed_incomplete_run",
+            extra={
+                "event": "healed_incomplete_run",
+                "request_id": request_id,
+                "conversation_id": ctx.conversation_id,
+            },
+        )
 
     logger.info(
         "graph_call_start",
