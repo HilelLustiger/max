@@ -1,32 +1,87 @@
 # max
 
-A personal assistant AI agent, reachable via Telegram, deployed on Railway.
+[![CI](https://github.com/HilelLustiger/max/actions/workflows/ci.yml/badge.svg)](https://github.com/HilelLustiger/max/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue)](Agent/pyproject.toml)
+[![Node 24+](https://img.shields.io/badge/node-24%2B-339933)](Telegram/package.json)
 
-Built as a foundation for a larger roadmap: a frontend UI, a Chrome extension, and MCP-server-powered skills, all sharing one agent core. See [docs/DOMAIN.md](docs/DOMAIN.md) for the project glossary.
+A personal assistant AI agent, reachable via Telegram, running in production on Railway.
+
+`max` handles task and habit tracking, and curates personalized news digests from RSS feeds, through a single conversational interface — all backed by a channel-agnostic agent core built as the foundation for a larger roadmap (web UI, Chrome extension, MCP-server-powered skills).
+
+## Demo
+
+<img src="docs/images/telegram-demo.png" alt="max answering a Telegram conversation" width="420">
+
+*Real conversation, screenshotted from the production bot: task tracking, a clarification round-trip, and a news digest.*
+
+## Architecture
+
+```mermaid
+flowchart LR
+    User(["Telegram user"])
+    TG["Telegram Gateway\nTypeScript · grammY"]
+    Agent["Agent\nPython · FastAPI · LangGraph"]
+    LLM["Claude\n(Anthropic API)"]
+    Tools["Tools\ntasks · habits · news · clarification"]
+    PG[("Postgres\nconversation checkpoints · domain data · metrics")]
+
+    User -- message --> TG
+    TG -- "POST /chat  (X-Request-Id)" --> Agent
+    Agent -- reply / 👀 reaction --> TG
+    TG -- reply --> User
+    Agent <--> LLM
+    Agent --> Tools
+    Tools --> PG
+    Agent -. "checkpoint + LLM metrics" .-> PG
+```
+
+Each service owns its dependencies, tests, and deploy; the Telegram Gateway is a thin, replaceable adapter — the Agent has no knowledge of Telegram at all, so the same `/chat` API can grow a web frontend or Chrome extension later without touching the reasoning core. See [docs/DOMAIN.md](docs/DOMAIN.md) for the project's glossary.
+
+## Highlights
+
+- **Model-agnostic LLM layer** — an `LLMProvider` protocol (`Agent/app/llm/contract.py`) decouples orchestration from any specific vendor; swapping providers or adding a second one requires no changes outside `app/llm/`.
+- **LangGraph orchestration with real interrupts** — multi-turn clarification ("which task did you mean?") is built on LangGraph's native `interrupt()` / `Command(resume=...)`, not hand-rolled state; conversation memory is a `PostgresSaver` checkpoint, kept within a token budget per call via `trim_messages`.
+- **Tool-calling agent** — task and habit tracking, plus an RSS-based news digest pipeline (topic subscriptions, cross-feed dedup, LLM-summarized digests) are exposed to the model as tools (`Agent/app/tools/`), routed through a generic `ToolNode` result-processing pipeline.
+- **Cost and performance visibility** — every LLM call is recorded to `llm_metrics` (tokens, latency, estimated cost, including prompt-cache reads/writes), queryable via a metrics report script — not an afterthought bolted on later.
+- **Full request traceability** — structured JSON logging across every service, correlated end-to-end by a `request_id` generated at the Telegram edge and threaded through Agent logs and DB rows: one user message, one grep.
+- **Two-tier testing** — a fast unit tier (no Docker) enforced on every commit, and a full integration tier (real Postgres, real cross-service contract) enforced on every push, both mirrored in CI.
+- **Decisions on record** — architecturally significant choices (e.g. moving conversation memory to a LangGraph checkpointer, replacing hand-rolled clarification state with `interrupt()`) are captured as ADRs before being built, not reconstructed from memory afterward.
 
 ## Structure
 
 ```
 max/
-├── Agent/               # Python/FastAPI — the agent, LLM calls, persistence
-├── DB/                  # shared Python package — Postgres models, migrations
+├── Agent/               # Python/FastAPI — the agent: LangGraph orchestration, LLM calls, tools, persistence
+├── DB/                  # shared Python package — Postgres models, Alembic migrations
 ├── Telegram/            # TypeScript/grammY — Telegram gateway, calls Agent's /chat
 ├── Integration/         # cross-service tests: boots a real Agent against real Postgres
 ├── scripts/             # root-level dev scripts (see Local development below)
 └── .github/workflows/   # CI: delegates to each service's own scripts/ci.sh
 ```
 
-Each service lives in its own top-level directory (e.g. `Agent/`) and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). Future services (frontend, Chrome extension) will each get their own top-level directory the same way.
+Each service lives in its own top-level directory and owns its own dependencies, tests, and build — the root of this repo only orchestrates (CI, docs, cross-cutting decisions). Future services (frontend, Chrome extension) will each get their own top-level directory the same way.
 
 ## Status
 
-- `Agent`: implemented and working end-to-end — `/chat` persists conversation history to Postgres, calls Claude via a model-agnostic LLM layer, and records per-call metrics. The LangGraph model-call loop supports tool calling (`ToolNode` + conditional edge back to the model); every tool's raw output passes through a generic result-processing step before becoming a `ToolMessage`, currently just capping length (`app/graph/build.py`, `MAX_TOOL_RESULT_CHARS`) — more steps (e.g. summarization) can be added to that same pipeline later. Real tools are wired in for task and habit tracking (`app/tools/`): `create_task`, `list_tasks`, `complete_task`, `create_habit`, `list_habits`, `log_habit`.
-- `DB`: shared Postgres models + Alembic migrations, used by `Agent`. Covers conversation history/metrics plus task and habit tracking (`Goal`, `Task`, `Habit`, `HabitLog`), linked via an optional `goal_id` so tasks/habits can stand alone or roll up to a goal.
-- `Telegram`: verified end-to-end against a real bot, both running locally and via its built Docker image — forwards messages to `Agent`'s `/chat` over long polling.
-- Logging: structured JSON across all services, correlated by a `request_id` generated by the Telegram gateway and propagated through Agent's logs and DB rows, so one message is traceable end-to-end with a single grep.
-- Deployed on Railway: `Agent` and `Telegram` run as separate services against a managed Railway Postgres, communicating over Railway's private network. Migrations run automatically via a pre-deploy command (`uv run --directory DB alembic upgrade head`) on every deploy. Verified with a real Telegram message end to end in production, including a real tool call.
+- **Agent** — implemented and working end-to-end. `/chat` runs a LangGraph model-call loop (`ToolNode` + conditional edges) over Claude, with conversation memory backed by a Postgres-checkpointed thread and multi-turn clarification handled via native `interrupt()`. Tools are wired in for task tracking (`create_task`, `list_tasks`, `complete_task`), habit tracking (`create_habit`, `list_habits`, `log_habit`), and a news digest pipeline (`create_topic`, `list_topics`, `fetch_news_entries`, `summarize_news`).
+- **DB** — shared Postgres models + Alembic migrations, used by `Agent`. Covers conversation checkpoints, LLM metrics, task/habit/goal tracking, and news topics with cross-feed delivery dedup.
+- **Telegram** — verified end-to-end against a real bot, both running locally and via its built Docker image. Forwards messages to `Agent`'s `/chat` over long polling and reacts to incoming messages (👀) while a reply is in flight.
+- **Logging** — structured JSON across all services, correlated by a `request_id` generated by the Telegram gateway and propagated through Agent's logs and DB rows, so one message is traceable end-to-end with a single grep.
+- **Deployed on Railway** — `Agent` and `Telegram` run as separate services against a managed Railway Postgres, communicating over Railway's private network. Migrations run automatically via a pre-deploy command on every deploy. Verified with real Telegram messages end to end in production, including real tool calls.
 
 Work is tracked as GitHub issues on the [project board](https://github.com/users/HilelLustiger/projects/4).
+
+## Tech stack
+
+| Layer | Choices |
+|---|---|
+| Agent | Python 3.12, FastAPI, LangGraph, LangChain (Anthropic), Pydantic Settings |
+| Gateway | TypeScript, grammY, tsx |
+| Data | Postgres, SQLAlchemy, Alembic, `langgraph-checkpoint-postgres` |
+| LLM | Claude (Anthropic API), model-agnostic provider layer, prompt caching |
+| Ops | Docker Compose (local Postgres), GitHub Actions CI, Railway (deploy), structured JSON logging |
+| Testing | pytest (unit + integration tiers), Node's built-in test runner, pre-commit/pre-push hooks |
 
 ## Local development
 
@@ -77,3 +132,11 @@ To run either manually without committing/pushing: `pre-commit run -c .github/pr
 ## CI
 
 `.github/workflows/ci.yml` runs one job per service. Each job does minimal environment setup (Node or Python) and then hands off entirely to that service's own `scripts/ci.sh`, which owns its install/lint/test/build steps (unit + integration together, since CI already has a real Postgres available). The root workflow never encodes service-specific commands directly — that keeps each service free to change its own tooling without touching CI config at the root.
+
+## Deployment
+
+`Agent` and `Telegram` deploy to Railway as independent services against a managed Postgres instance, communicating over Railway's private network. Database migrations run automatically via a pre-deploy command (`uv run --directory DB alembic upgrade head`) before each deploy, so schema and code stay in lockstep.
+
+## License
+
+[MIT](LICENSE)
