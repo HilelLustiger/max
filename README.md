@@ -9,12 +9,6 @@ A personal assistant AI agent, reachable via Telegram, running in production on 
 
 `max` handles task and habit tracking, and curates personalized news digests from RSS feeds, through a single conversational interface — all backed by a channel-agnostic agent core built as the foundation for a larger roadmap (web UI, Chrome extension, MCP-server-powered skills).
 
-## Demo
-
-<img src="docs/images/telegram-demo.png" alt="max answering a Telegram conversation" width="420">
-
-*Real conversation, screenshotted from the production bot: task tracking, a clarification round-trip, and a news digest.*
-
 ## Architecture
 
 ```mermaid
